@@ -62,3 +62,6 @@ frontend/AGENTS.md
 document/
 *.mp4
 frontend/tsconfig.tsbuildinfo
+
+# Graphify (generated knowledge-graph output)
+graphify-out/
