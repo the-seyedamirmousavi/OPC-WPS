@@ -34,3 +34,31 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ---- AISO ----
+# toolchain downloaded locally
+.tools/
+
+# backend
+backend/target/
+backend/data/
+
+# frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env
+frontend/.env.local
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+*.log
+
+# not part of the product
+frontend/AGENTS.md
+# large local media (GitHub rejects files over 100 MB)
+document/
+*.mp4
+frontend/tsconfig.tsbuildinfo

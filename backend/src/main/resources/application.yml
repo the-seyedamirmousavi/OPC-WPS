@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: aiso
+  datasource:
+    # Default: embedded file database (zero setup). For PostgreSQL set AISO_DB_URL, e.g.
+    # jdbc:postgresql://localhost:5432/aiso  (+ AISO_DB_USER / AISO_DB_PASSWORD)
+    url: ${AISO_DB_URL:jdbc:h2:file:./data/aiso;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${AISO_DB_USER:sa}
+    password: ${AISO_DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+aiso:
+  jwt:
+    # >= 32 chars. If empty a random key is generated at startup (tokens die on restart).
+    secret: ${AISO_JWT_SECRET:}
+    ttl-minutes: 480
+  seed:
+    # Seeds OWNER, MANAGER, USER_1..3 on first start when the user table is empty.
+    enabled: true
+    password: ${AISO_SEED_PASSWORD:ChangeMe!123}
+    # Language of system-generated texts on a fresh install ("fa" or "en"); the owner can change it in Settings.
+    language: ${AISO_LANGUAGE:fa}
+  llm:
+    # The key is read from the environment only; it is never stored in the database.
+    api-key: ${ANTHROPIC_API_KEY:}
+    # Model id of the LLM to use. Required for the LLM method; there is deliberately no built-in default.
+    model: ${AISO_LLM_MODEL:}
+    timeout-seconds: 120
+    max-tokens: 16000
+    fallback-to-algorithm: true
+  assignment:
+    # Soft preference: the resource's responsible user is treated as if they had this many fewer load-hours.
+    responsible-bonus-hours: 8
+
+logging:
+  level:
+    com.aiso: INFO
