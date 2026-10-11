@@ -59,7 +59,6 @@ frontend/*.tsbuildinfo
 # not part of the product
 frontend/AGENTS.md
 # large local media (GitHub rejects files over 100 MB)
-document/
 *.mp4
 frontend/tsconfig.tsbuildinfo
 
