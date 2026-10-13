@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Services\OperationService;
@@ -47,7 +47,7 @@ class OperationController extends Controller
     {
         $d = $this->views->detail($id);
         $me = $this->actor($request);
-        if ($me->user_role->isExecutor() && $me->id !== $d['operation']['assignedUserId']) {
+        if ($me->receivesTasks() && $me->id !== $d['operation']['assignedUserId']) {
             throw ApiException::forbidden('This operation is not assigned to you');
         }
 

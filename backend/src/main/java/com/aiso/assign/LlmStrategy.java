@@ -49,7 +49,8 @@ public class LlmStrategy implements AssignmentStrategy {
             HARD CONSTRAINTS - the system rejects any assignment that breaks one of them:
             1. Use only user ids and operation ids that appear in the snapshot.
             2. Each operation is assigned to at most one user.
-            3. If an operation has fixedUserId, it can only go to that user.
+            3. If an operation has fixedUserId, it can only go to that user. When forcedByManager is true the
+               manager forced that user: assign it even if the user has no freeTaskSlots left.
             4. A resource can take at most freeSlots new operations (count your own assignments too).
             5. A user can take at most freeTaskSlots new operations (count your own assignments too).
 
@@ -270,6 +271,7 @@ public class LlmStrategy implements AssignmentStrategy {
             m.put("projectPriority", o.projectRank());
             m.put("plannedStartHours", round(o.plannedStartHours()));
             m.put("fixedUserId", o.fixedUserId());
+            m.put("forcedByManager", o.forcedUser());
             return m;
         }).toList());
         root.put("users", ctx.users().stream().map(u -> {

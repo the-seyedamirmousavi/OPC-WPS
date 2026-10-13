@@ -198,6 +198,19 @@ public class OperationService {
         }
     }
 
+    /** New planned start/end (the baseline its executor works to) of an ASSIGNED operation, set by a manager FORCE. */
+    public void reschedule(String id, Instant plannedStart, Instant plannedEnd, String actorId, String reason) {
+        Operation op = find(id);
+        require(op, OperationStatus.ASSIGNED);
+        Instant before = op.getPlannedStart();
+        op.setPlannedStart(plannedStart);
+        op.setPlannedEnd(plannedEnd);
+        save(op);
+        audit.record(actorId, "RESCHEDULE", "Operation", id, before, plannedStart, reason);
+        notifications.notifyUser(op.getAssignedUserId(), "OPERATION_RESCHEDULED", "Planned start of " + op.getId()
+                + " moved to " + ForceService.tehranTime(plannedStart) + " by a manager FORCE", id);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------------------
 
     private Operation find(String id) {

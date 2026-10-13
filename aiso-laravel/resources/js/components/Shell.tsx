@@ -1,36 +1,47 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Banner, Button, Field, Loading, Modal, inputClass } from "@/components/ui";
 import { useSession, useT, useToast } from "@/components/Providers";
 import { api, useFetch } from "@/lib/api";
-import type { Notification, Role, User } from "@/lib/types";
+import { can, roleLabel } from "@/lib/capabilities";
+import type { DepartmentMenuItem, Notification, User } from "@/lib/types";
 
 interface NavItem {
   href: string;
   label: string;
-  roles: Role[];
+  /** who sees the item: the owner, a capability, the people who receive tasks, or everyone signed in */
+  show: (u: User) => boolean;
 }
 
-const MGMT: Role[] = ["OWNER", "MANAGER"];
-const EXEC: Role[] = ["USER_1", "USER_2", "USER_3"];
+const OWNER = (u: User) => u.role === "OWNER";
+// The owner does not get the production pages as menu items: they are inside the Production department's workspace.
+const PRODUCTION = (u: User) => u.role !== "OWNER" && can(u, "production.view");
+const TASKS = (u: User) => u.receivesTasks;
 
+/**
+ * The owner's menu is one Dashboard, the department panels (Production holds all the planning pages and the import history,
+ * Human resources holds users, roles and the audit log) and the AI assistant. System administration is in the account menu.
+ * A manager keeps the production pages as a short list of their own; the assistant is a small button in their header.
+ */
 const NAV: NavItem[] = [
-  { href: "/owner", label: "nav.owner", roles: ["OWNER"] },
-  { href: "/manager", label: "nav.overview", roles: MGMT },
-  { href: "/manager/projects", label: "nav.projects", roles: MGMT },
-  { href: "/manager/assignment", label: "nav.assignment", roles: MGMT },
-  { href: "/manager/operations", label: "nav.operations", roles: MGMT },
-  { href: "/manager/plan", label: "nav.plan", roles: MGMT },
-  { href: "/manager/reports", label: "nav.reports", roles: MGMT },
-  { href: "/import", label: "nav.import", roles: MGMT },
-  { href: "/owner/users", label: "nav.users", roles: ["OWNER"] },
-  { href: "/audit", label: "nav.audit", roles: MGMT },
-  { href: "/my", label: "nav.myTasks", roles: EXEC },
+  { href: "/owner", label: "nav.dashboard", show: OWNER },
+  { href: "/manager/projects", label: "nav.projects", show: PRODUCTION },
+  { href: "/manager/assignment", label: "nav.assignment", show: PRODUCTION },
+  { href: "/manager/operations", label: "nav.operations", show: PRODUCTION },
+  { href: "/manager/planner", label: "nav.planner", show: PRODUCTION },
+  { href: "/manager/plan", label: "nav.plan", show: PRODUCTION },
+  { href: "/manager/reports", label: "nav.reports", show: PRODUCTION },
+  { href: "/my", label: "nav.myTasks", show: TASKS },
 ];
 
-export function homeFor(role: Role) {
-  return role === "OWNER" ? "/owner" : role === "MANAGER" ? "/manager" : "/my";
+/** Where a person lands: the owner's dashboard, the production workspace, their tasks, or the assistant. */
+export function homeFor(user: User) {
+  if (user.role === "OWNER") return "/owner";
+  if (can(user, "production.view")) return "/manager";
+  if (user.receivesTasks) return "/my";
+
+  return "/chat";
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -55,13 +66,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // keep each role inside its own area (the backend enforces this too)
   useEffect(() => {
     if (!user) return;
-    const allowed = NAV.some((n) => n.roles.includes(user.role) && (pathname === n.href || pathname.startsWith(n.href + "/")));
-    if (!allowed && pathname !== "/") navigate(homeFor(user.role), { replace: true });
+    // a department panel is allowed for everyone signed in: the server answers 403 where the person has no access
+    const allowed =
+      pathname === "/chat" ||
+      pathname.startsWith("/departments/") ||
+      pathname === "/manager" ||
+      // the owner's old manager addresses are sent into the Production workspace by ManagerArea
+      (user.role === "OWNER" && (pathname.startsWith("/manager/") || pathname === "/owner/system")) ||
+      NAV.some((n) => n.show(user) && (pathname === n.href || pathname.startsWith(n.href + "/")));
+    if (!allowed && pathname !== "/") navigate(homeFor(user), { replace: true });
   }, [user, pathname, navigate]);
 
   if (!user) return <Loading />;
 
-  const items = NAV.filter((n) => n.roles.includes(user.role));
+  const items = NAV.filter((n) => n.show(user));
   const active = (href: string) =>
     pathname === href || (href !== "/manager" && href !== "/owner" && pathname.startsWith(href + "/"));
 
@@ -80,31 +98,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {t(n.label)}
         </Link>
       ))}
+      {/* the departments are fixed: one button each, straight into the workspace (all of them for the owner) */}
+      <DepartmentMenu pathname={pathname} onPick={() => setMenu(false)} />
+      {/* the owner's menu ends with the AI assistant; everyone else has it as a small button in the header */}
+      {user.role === "OWNER" && (
+        <div className="mt-4 border-t border-line pt-3">
+          <Link
+            to="/chat"
+            onClick={() => setMenu(false)}
+            aria-current={pathname === "/chat" ? "page" : undefined}
+            className={`block rounded-lg px-3 py-2 text-sm font-medium ${pathname === "/chat" ? "bg-accent-soft text-ink" : "text-ink-2 hover:bg-surface-2"}`}
+          >
+            ✦ {t("nav.chat")}
+          </Link>
+          <Link
+            to="/owner/assistant"
+            onClick={() => setMenu(false)}
+            aria-current={pathname === "/owner/assistant" ? "page" : undefined}
+            className={`mt-1 block rounded-lg px-3 py-2 text-sm font-medium ${pathname === "/owner/assistant" ? "bg-accent-soft text-ink" : "text-ink-2 hover:bg-surface-2"}`}
+          >
+            {t("nav.assistantLog")}
+          </Link>
+        </div>
+      )}
     </nav>
   );
 
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-60 shrink-0 border-e border-line bg-surface p-4 lg:block">
+      <aside className="hidden w-60 shrink-0 overflow-y-auto border-e border-line bg-surface p-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:self-start">
         <div className="mb-6 px-3 text-lg font-bold tracking-tight">AISO</div>
         {links}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur">
+        <header className="sticky top-0 z-30 flex flex-wrap items-center gap-1 sm:flex-nowrap border-b border-line bg-surface/95 px-3 py-2.5 backdrop-blur sm:gap-2 sm:px-4">
           <button
-            className="rounded-lg p-2 text-ink-2 hover:bg-surface-2 lg:hidden"
+            className="shrink-0 rounded-lg p-2 text-ink-2 hover:bg-surface-2 lg:hidden"
             aria-label="Menu"
             aria-expanded={menu}
             onClick={() => setMenu((m) => !m)}
           >
             ☰
           </button>
-          <span className="font-bold lg:hidden">AISO</span>
-          <div className="flex-1" />
-          <Button variant="ghost" onClick={() => setLang(lang === "fa" ? "en" : "fa")} aria-label="Language">
+          <span className="shrink-0 font-bold lg:hidden">AISO</span>
+          <div className="hidden min-w-0 flex-1 truncate px-2 text-sm text-ink-2 sm:block">
+            <TodayDate />
+          </div>
+          <div className="min-w-0 flex-1 sm:hidden" />
+          {/* phones: the date gets its own thin row so it is always visible without crowding the buttons */}
+          <div className="order-last basis-full border-t border-line pt-1 text-center text-xs text-ink-2 sm:hidden">
+            <TodayDate />
+          </div>
+          <Button variant="ghost" className="shrink-0 px-2.5! sm:px-3.5!" onClick={() => setLang(lang === "fa" ? "en" : "fa")} aria-label="Language">
             {lang === "fa" ? "EN" : "فا"}
           </Button>
+          {user.role !== "OWNER" && <AssistantButton active={pathname === "/chat"} />}
           <ThemeToggle />
           <Bell />
           <UserMenu user={user} />
@@ -114,6 +163,90 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+/** The departments the person may open, each one a button in the menu. Read from the database through the API. */
+function DepartmentMenu({ pathname, onPick }: { pathname: string; onPick: () => void }) {
+  const { t } = useT();
+  const { data } = useFetch<DepartmentMenuItem[]>("/departments/menu", 60000);
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <div className="px-3 pb-1 text-xs font-medium text-ink-3">{t("dept.menu.title")}</div>
+      {data.map((d) => {
+        const href = `/departments/${d.id}`;
+        const current = pathname === href;
+        return (
+          <Link
+            key={d.id}
+            to={href}
+            onClick={onPick}
+            aria-current={current ? "page" : undefined}
+            className={`block truncate rounded-lg px-3 py-2 text-sm font-medium ${current ? "bg-accent-soft text-ink" : "text-ink-2 hover:bg-surface-2"}`}
+          >
+            {d.name}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The assistant for everyone but the owner: a small button in the header, so it takes no place in the side menu. */
+function AssistantButton({ active }: { active: boolean }) {
+  const { t } = useT();
+  return (
+    <Link
+      to="/chat"
+      aria-label={t("nav.chat")}
+      title={t("nav.chat")}
+      aria-current={active ? "page" : undefined}
+      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium hover:bg-surface-2 sm:px-3.5 ${active ? "bg-accent-soft text-ink" : "text-ink-2"}`}
+    >
+      <span aria-hidden>✦</span>
+      <span className="hidden md:inline">{t("nav.chat")}</span>
+    </Link>
+  );
+}
+
+/** Closes a dropdown on an outside click or Escape. Attach the returned ref to the element wrapping the trigger and the panel. */
+function useDismiss(open: boolean, close: () => void) {
+  const box = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) closeRef.current();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return box;
+}
+
+/** Today's date, always in the header: Solar Hijri with the weekday (Tehran time) in Persian, Gregorian in English. */
+function TodayDate() {
+  const { lang } = useT();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const fa = lang === "fa";
+  const fmt = new Intl.DateTimeFormat(fa ? "fa-IR-u-ca-persian" : "en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    ...(fa ? { timeZone: "Asia/Tehran" } : {}),
+  });
+  return <time dateTime={now.toISOString()}>{fmt.format(now)}</time>;
 }
 
 function ThemeToggle() {
@@ -132,7 +265,7 @@ function ThemeToggle() {
     }
   };
   return (
-    <Button variant="ghost" onClick={toggle} aria-label={t("common.theme")} title={t("common.theme")}>
+    <Button variant="ghost" className="shrink-0 px-2.5! sm:px-3.5!" onClick={toggle} aria-label={t("common.theme")} title={t("common.theme")}>
       ◐
     </Button>
   );
@@ -143,6 +276,7 @@ function Bell() {
   const [open, setOpen] = useState(false);
   const { data, reload } = useFetch<Notification[]>("/notifications", 30000);
   const unread = data?.filter((n) => !n.readAt).length ?? 0;
+  const box = useDismiss(open, () => setOpen(false));
 
   const markAll = async () => {
     await api("/notifications/read-all", { method: "POST" });
@@ -150,15 +284,16 @@ function Bell() {
   };
 
   return (
-    <div className="relative">
-      <Button variant="ghost" onClick={() => setOpen((o) => !o)} aria-label={t("notif.title")} aria-expanded={open}>
+    <div className="shrink-0 sm:relative" ref={box}>
+      <Button variant="ghost" className="px-2.5! sm:px-3.5!" onClick={() => setOpen((o) => !o)} aria-label={t("notif.title")} aria-expanded={open}>
         🔔
         {unread > 0 && (
           <span className="rounded-full bg-bad px-1.5 text-xs font-semibold text-white">{unread}</span>
         )}
       </Button>
       {open && (
-        <div className="absolute end-0 top-full z-40 mt-1 w-80 max-w-[85vw] rounded-xl border border-line bg-surface shadow-xl">
+        // Phones: the panel spans the (positioned) header so it can never run off the screen; from sm up it hangs under the bell.
+        <div className="absolute inset-x-3 top-full z-40 mt-1 rounded-xl border border-line bg-surface shadow-xl sm:inset-x-auto sm:end-0 sm:w-80">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <span className="text-sm font-semibold">{t("notif.title")}</span>
             {unread > 0 && (
@@ -194,6 +329,7 @@ function UserMenu({ user }: { user: User }) {
   const [baleOpen, setBaleOpen] = useState(false);
   const [bale, setBale] = useState<{ connected: boolean; platform: string } | null>(null);
   const [linkCode, setLinkCode] = useState<string | null>(null);
+  const box = useDismiss(open, () => setOpen(false));
 
   const openBale = async () => {
     setOpen(false);
@@ -248,13 +384,31 @@ function UserMenu({ user }: { user: User }) {
   };
 
   return (
-    <div className="relative">
-      <Button variant="secondary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className="max-w-32 truncate">{user.fullName}</span>
-        <span className="text-xs text-ink-3">{t(`role.${user.role}`)}</span>
+    <div className="relative min-w-0 shrink" ref={box}>
+      <Button variant="secondary" className="max-w-full px-2.5! sm:px-3.5!" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="max-w-20 truncate sm:max-w-32">{user.fullName}</span>
+        <span className="hidden text-xs text-ink-3 sm:inline">{roleLabel(t, user.role, user.roleName)}</span>
       </Button>
       {open && (
         <div className="absolute end-0 top-full z-40 mt-1 w-48 rounded-xl border border-line bg-surface p-1 shadow-xl">
+          {user.role === "OWNER" && (
+            <Link
+              to="/owner/system"
+              onClick={() => setOpen(false)}
+              className="block w-full rounded-lg px-3 py-2 text-start text-sm hover:bg-surface-2"
+            >
+              {t("user.system")}
+            </Link>
+          )}
+          {user.role === "OWNER" && (
+            <Link
+              to="/owner/roles"
+              onClick={() => setOpen(false)}
+              className="block w-full rounded-lg px-3 py-2 text-start text-sm hover:bg-surface-2"
+            >
+              {t("user.roles")}
+            </Link>
+          )}
           <button
             className="block w-full rounded-lg px-3 py-2 text-start text-sm hover:bg-surface-2"
             onClick={() => {

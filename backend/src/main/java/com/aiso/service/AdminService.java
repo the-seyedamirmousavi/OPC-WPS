@@ -10,8 +10,10 @@ import com.aiso.repo.ItemRepository;
 import com.aiso.repo.NotificationRepository;
 import com.aiso.repo.OperationReportRepository;
 import com.aiso.repo.OperationRepository;
+import com.aiso.repo.PlanBaselineRepository;
 import com.aiso.repo.PredecessorRepository;
 import com.aiso.repo.ProjectRepository;
+import com.aiso.repo.ScheduleForceRepository;
 import com.aiso.repo.WorkResourceRepository;
 import com.aiso.security.CurrentUser;
 import com.aiso.web.ApiException;
@@ -38,6 +40,8 @@ public class AdminService {
     private final NotificationRepository notifications;
     private final PredecessorRepository predecessors;
     private final OperationRepository operations;
+    private final ScheduleForceRepository forces;
+    private final PlanBaselineRepository baseline;
     private final ItemRepository items;
     private final WorkResourceRepository resources;
     private final ProjectRepository projectRepo;
@@ -46,7 +50,10 @@ public class AdminService {
                         AssignmentProposalRepository proposals, AssignmentRunRepository runs,
                         OperationReportRepository reports, NotificationRepository notifications,
                         PredecessorRepository predecessors, OperationRepository operations, ItemRepository items,
-                        WorkResourceRepository resources, ProjectRepository projectRepo) {
+                        WorkResourceRepository resources, ProjectRepository projectRepo, ScheduleForceRepository forces,
+                        PlanBaselineRepository baseline) {
+        this.forces = forces;
+        this.baseline = baseline;
         this.settings = settings;
         this.audit = audit;
         this.dependencies = dependencies;
@@ -126,12 +133,14 @@ public class AdminService {
 
     /**
      * Controlled reset: removes operational data (projects, operations, resources, items, predecessors, reports, proposals,
-     * notifications). Users, settings and the audit trail are kept; the reset itself is recorded with its reason.
+     * notifications, manager FORCEs, the reference plan). Users, settings and the audit trail are kept; the reset itself is recorded with its reason.
      */
     public void reset(String reason, CurrentUser actor) {
         if (reason == null || reason.isBlank()) {
             throw ApiException.badRequest("A reason is required for a reset");
         }
+        forces.deleteAllInBatch();
+        baseline.deleteAllInBatch();
         proposals.deleteAllInBatch();
         runs.deleteAllInBatch();
         reports.deleteAllInBatch();

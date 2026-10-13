@@ -143,6 +143,12 @@ public final class SchedulePlanner {
     /** Places every id in {@code pending}, highest priority first, as soon as all its predecessors are placed. */
     static void pass(Map<String, Task> byId, Set<String> pending, Map<String, Slot> placed, Lanes lanes,
                      Comparator<String> priority) {
+        pass(byId, pending, placed, lanes, priority, Map.of());
+    }
+
+    /** @param release earliest allowed start per task (hours from now); tasks without an entry may start at 0 */
+    static void pass(Map<String, Task> byId, Set<String> pending, Map<String, Slot> placed, Lanes lanes,
+                     Comparator<String> priority, Map<String, Double> release) {
         while (!pending.isEmpty()) {
             String next = pending.stream()
                     .filter(id -> byId.get(id).deps().stream()
@@ -153,7 +159,7 @@ public final class SchedulePlanner {
                 break; // unresolved cycle: leave the rest unplanned
             }
             Task t = byId.get(next);
-            double ready = 0;
+            double ready = Math.max(0, release.getOrDefault(next, 0.0));
             for (Dep d : t.deps()) {
                 Slot p = placed.get(d.predecessorId());
                 if (p != null) {
@@ -189,6 +195,29 @@ public final class SchedulePlanner {
         lane.add(new double[]{bestStart, bestStart + duration});
         lane.sort(Comparator.comparingDouble(iv -> iv[0]));
         return new Slot(bestStart, bestStart + duration);
+    }
+
+    /**
+     * Places a task at exactly {@code start} on the first lane that is free for the whole interval (a manager FORCE).
+     *
+     * @return the slot, or null when every lane is busy somewhere in that interval
+     */
+    static Slot placeAt(Lanes all, String resourceId, double start, double duration) {
+        for (List<double[]> lane : all.forResource(resourceId)) {
+            boolean free = true;
+            for (double[] iv : lane) {
+                if (iv[0] < start + duration - 1e-9 && start < iv[1] - 1e-9) {
+                    free = false;
+                    break;
+                }
+            }
+            if (free) {
+                lane.add(new double[]{start, start + duration});
+                lane.sort(Comparator.comparingDouble(iv -> iv[0]));
+                return new Slot(start, start + duration);
+            }
+        }
+        return null;
     }
 
     private static double earliestFit(List<double[]> lane, double ready, double duration) {

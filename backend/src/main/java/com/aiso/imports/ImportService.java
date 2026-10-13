@@ -367,7 +367,8 @@ public class ImportService {
             predsByOp.computeIfAbsent(p.getOperationId(), k -> new ArrayList<>()).add(p);
             succ.computeIfAbsent(p.getPredecessorId(), k -> new ArrayList<>()).add(p.getOperationId());
         }
-        return new ProjectData(base.settings(), projs, ops, res, base.users(), base.items(), predsByOp, succ, base.now());
+        return new ProjectData(base.settings(), projs, ops, res, base.users(), base.items(), predsByOp, succ, base.forces(),
+                base.baseline(), base.now());
     }
 
     private static Project copy(Project p) {

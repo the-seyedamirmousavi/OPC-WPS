@@ -59,7 +59,7 @@ class ImportController extends Controller
         if (!$this->lang->requestIsPersian()) {
             return $r;
         }
-        $r['errors'] = array_map(static fn (array $e) => $e + ['message' => FaTranslator::translate($e['message'])], $r['errors']);
+        $r['errors'] = array_map(static fn (array $e) => ['message' => FaTranslator::translate($e['message'])] + $e, $r['errors']);
         $r['warnings'] = array_map(static fn (string $w) => FaTranslator::translate($w), $r['warnings']);
 
         return $r;

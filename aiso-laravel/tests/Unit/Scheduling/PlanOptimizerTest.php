@@ -47,6 +47,52 @@ class PlanOptimizerTest extends TestCase
         $this->assertSame(20.0, self::finish($together, $both, 'P2')); // runs after P1 on the single lane
     }
 
+    /**
+     * X (5h on S) then A (1h on R) belong to P1; B and C (3h each, C after B) to P2. By priority A starts at 5 and the
+     * 2 idle hours before it on R cannot be used by C. Pooled, C goes first and A moves behind it: R is never idle.
+     */
+    private static function idleRiskTasks(): array
+    {
+        return [
+            self::t('X', 'P1', 1, 'S', 5), self::t('A', 'P1', 1, 'R', 1, ['X']),
+            self::t('B', 'P2', 2, 'R', 3), self::t('C', 'P2', 2, 'R', 3, ['B']),
+        ];
+    }
+
+    public function test_priority_goal_keeps_the_higher_project_on_time_and_leaves_resources_idle(): void
+    {
+        $tasks = self::idleRiskTasks();
+        $plan = PlanOptimizer::optimize($tasks, ['R' => 1, 'S' => 1])->plan;
+        $this->assertSame(6.0, self::finish($plan, $tasks, 'P1'));
+        $this->assertSame(2.0, PlanOptimizer::waste($plan->lanes));
+    }
+
+    public function test_resource_goal_packs_the_pool_even_when_a_higher_project_finishes_later(): void
+    {
+        $tasks = self::idleRiskTasks();
+        $result = PlanOptimizer::optimize($tasks, ['R' => 1, 'S' => 1], null, true);
+        $this->assertSame(0.0, PlanOptimizer::waste($result->plan->lanes));
+        $this->assertSame(7.0, self::finish($result->plan, $tasks, 'P1')); // A waited for C
+        $this->assertSame(7.0, $result->plan->makespan);
+        // every project reports the rule that scheduled the pool
+        $this->assertSame(['P1', 'P2'], array_keys($result->rules));
+    }
+
+    public function test_resource_goal_still_respects_capacity_and_dependencies(): void
+    {
+        $tasks = self::idleRiskTasks();
+        $plan = PlanOptimizer::optimize($tasks, ['R' => 1, 'S' => 1], null, true)->plan;
+        $this->assertGreaterThanOrEqual($plan->slots['X']->end, $plan->slots['A']->start);
+        $this->assertGreaterThanOrEqual($plan->slots['B']->end, $plan->slots['C']->start);
+        foreach (['A', 'B', 'C'] as $x) { // one lane on R: no two of its tasks overlap
+            foreach (['A', 'B', 'C'] as $y) {
+                if ($x < $y) {
+                    $this->assertTrue($plan->slots[$x]->end <= $plan->slots[$y]->start + 1e-9 || $plan->slots[$y]->end <= $plan->slots[$x]->start + 1e-9);
+                }
+            }
+        }
+    }
+
     public function test_swapping_priorities_swaps_who_waits(): void
     {
         $tasks = [self::t('A', 'P1', 2, 'R', 4), self::t('C', 'P2', 1, 'R', 6)];

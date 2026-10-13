@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Messaging\BaleBot;
 use App\Messaging\BaleClient;
+use App\Services\BaleConfig;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -26,8 +27,8 @@ class BalePoll extends Command
 
     public function handle(BaleClient $client, BaleBot $bot): int
     {
-        if (trim((string) config('aiso.bale.token')) === '') {
-            $this->error('BALE_BOT_TOKEN is not set in .env.');
+        if (!BaleConfig::configured()) {
+            $this->error('The Bale bot token is not set: add it in Settings, or BALE_BOT_TOKEN in .env.');
 
             return self::FAILURE;
         }

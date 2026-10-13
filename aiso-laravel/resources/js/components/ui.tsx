@@ -1,5 +1,6 @@
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "@/components/Providers";
 import type { OpStatus } from "@/lib/types";
 
@@ -186,36 +187,67 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass a fresh inline arrow every render. Keeping it in a ref means typing in a field does not
+  // re-run the effect below (which used to pull focus out of the input after every keystroke).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     document.addEventListener("keydown", onKey);
-    ref.current?.focus();
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    const unlock = lockPageScroll();
+    const firstField = ref.current?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea:not([disabled])");
+    (firstField ?? ref.current)?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      unlock();
+      previouslyFocused?.focus?.();
+    };
+  }, [open]);
+
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onMouseDown={onClose}>
+  // Rendered on document.body: a dialog inside an ancestor that has backdrop-filter, filter or transform
+  // (the sticky header does) is positioned against that ancestor instead of the screen.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4 sm:items-center"
+      onMouseDown={(e) => e.target === e.currentTarget && onCloseRef.current()}
+    >
       <div
         ref={ref}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`w-full ${wide ? "max-w-3xl" : "max-w-lg"} rounded-xl border border-line bg-surface shadow-2xl outline-none`}
+        className={`my-auto w-full ${wide ? "max-w-3xl" : "max-w-lg"} rounded-xl border border-line bg-surface shadow-2xl outline-none`}
       >
-        <header className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h2 className="text-base font-semibold">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-ink-2 hover:bg-surface-2">
+        <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <h2 className="min-w-0 text-base font-semibold">{title}</h2>
+          <button onClick={onClose} aria-label="Close" className="shrink-0 rounded p-1 text-ink-2 hover:bg-surface-2">
             ✕
           </button>
         </header>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
         {footer && <footer className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
+}
+
+// Several dialogs can be open at once (a detail dialog and a confirm on top); the page unlocks when the last closes.
+let scrollLocks = 0;
+let savedOverflow = "";
+function lockPageScroll() {
+  if (scrollLocks++ === 0) {
+    savedOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  return () => {
+    if (--scrollLocks === 0) document.body.style.overflow = savedOverflow;
+  };
 }
 
 // ---------------------------------------------------------------- status

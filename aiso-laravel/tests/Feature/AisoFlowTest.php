@@ -61,6 +61,15 @@ class AisoFlowTest extends TestCase
         $this->getJson('/api/auth/me')->assertOk()->assertJsonPath('id', 'manager');
     }
 
+    public function test_latest_assignment_run_is_a_real_null_before_any_run(): void
+    {
+        $this->as('manager');
+
+        // response()->json(null) sends "{}", which the assignment screen took for a run without proposals and crashed on.
+        $body = $this->getJson('/api/assignments/latest')->assertOk()->getContent();
+        $this->assertSame('null', trim($body));
+    }
+
     public function test_sample_workbook_imports_and_dependencies_decide_readiness(): void
     {
         $this->as('owner');
@@ -147,7 +156,7 @@ class AisoFlowTest extends TestCase
             ->assertJsonPath('effectiveMode', 'ALGORITHM')
             ->assertJsonPath('fallback', true)
             ->json();
-        $this->assertTrue(collect($run['warnings'])->contains(fn (string $w) => str_contains($w, 'ANTHROPIC_API_KEY')));
+        $this->assertTrue(collect($run['warnings'])->contains(fn (string $w) => str_contains($w, 'AI service token is not set')));
 
         $this->putJson('/api/settings/assignment-mode', ['mode' => 'ALGORITHM'])->assertOk();
     }

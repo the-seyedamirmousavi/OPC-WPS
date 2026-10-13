@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Messaging\BaleClient;
 use App\Models\AppUser;
 use App\Models\Notification;
@@ -53,7 +53,7 @@ class NotificationService
 
     public function notifyManagers(string $kind, string $message, ?string $operationId): void
     {
-        $managers = AppUser::query()->where('user_role', Role::MANAGER->value)->get();
+        $managers = AppUser::query()->whereIn('user_role', AppRole::keysWith('production.manage'))->get();
         foreach ($managers as $m) {
             if ($m->isActive()) {
                 $this->notifyUser($m->id, $kind, $message, $operationId);
@@ -73,6 +73,9 @@ class NotificationService
             return;
         }
         if (strcasecmp($platform, 'BALE') === 0) {
+            if (!app(LicenseService::class)->baleAllowed()) {
+                return; // not part of this installation's licence
+            }
             $chatId = trim((string) $recipient->messenger_id);
             if ($chatId === '') {
                 Log::debug("No Bale chat linked for {$recipient->id}; the in-app inbox is used only.");

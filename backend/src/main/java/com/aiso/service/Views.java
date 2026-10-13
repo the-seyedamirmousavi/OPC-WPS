@@ -40,7 +40,8 @@ public final class Views {
             List<PredView> waitingFor,
             boolean delayed, double delayHours, boolean late,
             double tailHours,
-            String description) {
+            String description,
+            Instant forcedStart, String forcedUserId, String forceState) {
     }
 
     public record ReportView(Long id, String userId, String userName, ReportType type, Integer progressPercent,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ForcePanel } from "@/components/ForcePanel";
 import { Gantt } from "@/components/Gantt";
 import { OperationDetailModal } from "@/components/OperationDetailModal";
 import { Card, ErrorBox, Kpi, Loading, PageHeader, inputClass } from "@/components/ui";
@@ -46,6 +47,9 @@ export default function PlanPage() {
         <Gantt ops={project ? ops.data.filter((o) => o.projectId === project) : ops.data} capacities={capacities} onOpen={setOpen} />
         <p className="mt-3 text-xs text-ink-3">{t("plan.note")}</p>
       </Card>
+      <div className="mt-4">
+        <ForcePanel ops={ops.data} onChanged={() => { ops.reload(); dash.reload(); }} />
+      </div>
       <OperationDetailModal id={open} mode="manage" onClose={() => setOpen(null)} onChanged={() => { ops.reload(); dash.reload(); }} />
     </>
   );

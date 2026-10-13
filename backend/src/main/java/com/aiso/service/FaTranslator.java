@@ -11,8 +11,9 @@ import java.util.regex.Pattern;
  * notifications, assignment reasons). The source texts stay in English in the code; this class maps them to Persian at
  * the output boundary. Text that matches no rule (for example free text written by users) is returned unchanged.
  * <p>
- * Templates use {@code {n}} for group n as is, {@code {sn}} for an operation status and {@code {mn}} for an
- * assignment method.
+ * Templates use {@code {n}} for group n as is, {@code {sn}} for an operation status, {@code {mn}} for an
+ * assignment method, {@code {tn}} for a nested system text and {@code {dn}} for a Tehran time written as
+ * "yyyy-MM-dd HH:mm" (rendered as a Solar Hijri date and time).
  */
 public final class FaTranslator {
 
@@ -24,7 +25,7 @@ public final class FaTranslator {
             "BLOCKED", "مسدود", "COMPLETED", "تکمیل‌شده", "CANCELLED", "لغوشده");
     private static final Map<String, String> MODE = Map.of("ALGORITHM", "الگوریتم", "LLM", "هوش مصنوعی");
 
-    private static final Pattern TOKEN = Pattern.compile("\\{([smt]?)(\\d)}");
+    private static final Pattern TOKEN = Pattern.compile("\\{([smtd]?)(\\d)}");
     private static final Pattern PROJECT_SUFFIX = Pattern.compile("; project (.+) \\(priority (\\d+)\\)$");
     private static final List<Rule> RULES = new ArrayList<>();
 
@@ -74,6 +75,45 @@ public final class FaTranslator {
         r("Type RESET in the confirm field to proceed", "برای ادامه، عبارت RESET را در کادر تأیید بنویسید");
         r("maxActiveTasksPerUser must be between 1 and 50", "سقف وظایف فعال هر کاربر باید بین ۱ و ۵۰ باشد");
         r("Operation is no longer READY", "عملیات دیگر در وضعیت «آماده» نیست");
+
+        // ---- manager FORCE --------------------------------------------------------------------------------------
+        r("FORCE rejected: (.+)", "اجبار مدیر پذیرفته نشد: {t1}");
+        r("Forced start (\\S+ \\S+) of (\\S+) is in the past", "شروع اجباری {2} در {d1} در گذشته است");
+        r("(\\S+) cannot start at (\\S+ \\S+): its predecessors \\((.*)\\) allow (\\S+ \\S+) at the earliest",
+                "{1} نمی‌تواند در {d2} شروع شود: پیش‌نیازهایش ({3}) زودتر از {d4} اجازه نمی‌دهند");
+        r("(\\S+) cannot start at (\\S+ \\S+): resource (.+) \\(capacity (\\d+)\\) is taken by (.*) at that time",
+                "{1} نمی‌تواند در {d2} شروع شود: منبع «{3}» (ظرفیت {4}) در آن زمان در اختیار {5} است");
+        r("No schedule was found in which (\\S+) starts at (\\S+ \\S+); it is planned for (\\S+ \\S+)\\. A feasible schedule may still exist\\.",
+                "برنامه‌ای پیدا نشد که در آن {1} در {d2} شروع شود؛ برای {d3} برنامه‌ریزی شده است. ممکن است برنامهٔ شدنی دیگری وجود داشته باشد.");
+        r("(\\S+) cannot start at (\\S+ \\S+): the FORCE on (\\S+) \\(start (\\S+ \\S+)\\) needs it earlier",
+                "{1} نمی‌تواند در {d2} شروع شود: اجبار قدیمی‌تر روی {3} (شروع {d4}) آن را زودتر لازم دارد");
+        r("No schedule was found in which (\\S+) starts at (\\S+ \\S+) without making the older FORCE on (\\S+) impossible; it is planned for (\\S+ \\S+)\\.",
+                "برنامه‌ای پیدا نشد که در آن {1} در {d2} شروع شود و اجبار قدیمی‌تر روی {3} ناممکن نشود؛ برای {d4} برنامه‌ریزی شده است.");
+        r("Operation (\\S+) is (\\w+); its start cannot be forced", "عملیات {1} در وضعیت «{s2}» است؛ زمان شروع آن را نمی‌توان اجباری کرد");
+        r("Operation (\\S+) is (\\w+) and cannot be forced", "عملیات {1} در وضعیت «{s2}» است و قابل اجبار نیست");
+        r("Resource (.+) of (\\S+) is inactive", "منبع «{1}» برای {2} غیرفعال است");
+        r("Operation (\\S+) is (\\w+) with executor (\\S+); the executor cannot change now",
+                "عملیات {1} در وضعیت «{s2}» و در دست {3} است؛ مجری اکنون قابل تغییر نیست");
+        r("Give a forced start, a forced executor or both", "زمان شروع اجباری، مجری اجباری یا هر دو را وارد کنید");
+        r("It would make the FORCE on (\\S+) impossible: (.+)", "اجبار روی {1} را ناممکن می‌کند: {t2}");
+        r("The forced executor (\\S+) is no longer an active executive user", "مجری اجباری {1} دیگر کاربر اجرایی فعال نیست");
+        r("Overrides the executor fixed in the OPC sheet \\((\\S+)\\)", "مجری تعیین‌شده در برگهٔ OPC ({1}) نادیده گرفته می‌شود");
+        r("User (\\S+) already has (\\d+) active tasks \\(limit (\\d+)\\); the FORCE overrides the limit",
+                "کاربر {1} هم‌اکنون {2} وظیفهٔ فعال دارد (سقف {3})؛ اجبار مدیر از این سقف عبور می‌کند");
+        r("Project (.+) \\(priority (\\d+)\\) would finish (\\S+) h later", "پروژهٔ «{1}» (اولویت {2}) {3} ساعت دیرتر تمام می‌شود");
+        r("Operation (\\S+) is assigned to (\\S+); it will be reassigned to (\\S+)", "عملیات {1} به {2} تخصیص دارد؛ به {3} منتقل می‌شود");
+        r("(\\d+) already assigned operation\\(s\\) would move", "{1} عملیات تخصیص‌یافته جابه‌جا می‌شود");
+        r("(\\d+) operation\\(s\\) run ahead of higher-priority work to make the forced start possible",
+                "{1} عملیات برای شدنی شدن شروع اجباری، جلوتر از کارهای پراولویت‌تر انجام می‌شود");
+        r("Operation (\\S+) is forced to executor (\\S+) by the manager\\. Change or remove the FORCE first\\.",
+                "عملیات {1} به اجبار مدیر به {2} سپرده شده است. ابتدا اجبار را تغییر دهید یا حذف کنید.");
+        r("Operation (\\S+) is forced to executor (\\S+) by the manager", "عملیات {1} به اجبار مدیر به {2} سپرده شده است");
+        r("Forced executor (\\S+) is unavailable: (.*)", "مجری اجباری {1} در دسترس نیست: {t2}");
+        r("No FORCE on operation (\\S+)", "اجباری روی عملیات {1} وجود ندارد");
+        r("Start must be a date and time like 2026-10-08 14:30, 1405/07/16 14:30 or an ISO instant, got '(.*)'",
+                "زمان شروع باید تاریخ و ساعت باشد، مانند ۱۴۰۵/۰۷/۱۶ ۱۴:۳۰، اما «{1}» دریافت شد");
+        r("Planned start of (\\S+) moved to (\\S+ \\S+) by a manager FORCE", "شروع برنامه‌ریزی‌شدهٔ {1} با اجبار مدیر به {d2} منتقل شد");
+        r("FORCE: (.*)", "اجبار مدیر: {1}");
 
         // ---- projects ---------------------------------------------------------------------------------------
         r("Project (\\S+) not found", "پروژه {1} پیدا نشد");
@@ -210,6 +250,8 @@ public final class FaTranslator {
         // ---- assignment reason produced by the algorithm ----------------------------------------------------------
         r("Rank (\\d+) \\(chain ([\\d.]+) h\\); (.+) slot (\\d+) of (\\d+); (.+?): fixed executor in OPC",
                 "رتبه {1} (زنجیره {2} ساعت)؛ «{3}» اسلات {4} از {5}؛ {6}: مجری ثابت در فایل");
+        r("Rank (\\d+) \\(chain ([\\d.]+) h\\); (.+) slot (\\d+) of (\\d+); (.+?): forced by the manager",
+                "رتبه {1} (زنجیره {2} ساعت)؛ «{3}» اسلات {4} از {5}؛ {6}: به اجبار مدیر");
         r("Rank (\\d+) \\(chain ([\\d.]+) h\\); (.+) slot (\\d+) of (\\d+); (.+?): responsible user of (.+), load ([\\d.]+) h",
                 "رتبه {1} (زنجیره {2} ساعت)؛ «{3}» اسلات {4} از {5}؛ {6}: کاربر مسئول «{7}»، بار {8} ساعت");
         r("Rank (\\d+) \\(chain ([\\d.]+) h\\); (.+) slot (\\d+) of (\\d+); (.+?): lowest load \\(([\\d.]+) h, (\\d+) active\\)",
@@ -273,6 +315,8 @@ public final class FaTranslator {
                 rendered = MODE.getOrDefault(v, v);
             } else if ("t".equals(t.group(1))) {
                 rendered = translate(v);
+            } else if ("d".equals(t.group(1))) {
+                rendered = jalaliTime(v);
             } else {
                 rendered = v;
             }
@@ -280,6 +324,15 @@ public final class FaTranslator {
         }
         t.appendTail(out);
         return out.toString();
+    }
+
+    /** "2026-10-08 14:30" (Tehran) -> "۱۴۰۵/۰۷/۱۶ ۱۴:۳۰"; anything else unchanged. */
+    private static String jalaliTime(String v) {
+        try {
+            return Jalali.dateTime(java.time.LocalDateTime.parse(v.replace(' ', 'T')).atZone(Jalali.TEHRAN).toInstant());
+        } catch (java.time.format.DateTimeParseException e) {
+            return v;
+        }
     }
 
     /** Group 7/9 of the reason rules is the optional project suffix; this renders it. */

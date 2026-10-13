@@ -65,7 +65,7 @@ public class AlgorithmStrategy implements AssignmentStrategy {
                     .toList();
             if (allowed.isEmpty()) {
                 String why = op.fixedUserId() != null
-                        ? "Fixed executor " + op.fixedUserId() + " is unavailable: "
+                        ? (op.forcedUser() ? "Forced executor " : "Fixed executor ") + op.fixedUserId() + " is unavailable: "
                         + state.reject(op.id(), op.fixedUserId()).orElse("not allowed")
                         : "No executive user is below the active-task limit (" + ctx.maxActiveTasksPerUser() + ")";
                 skips.add(new Skip(op.id(), why));
@@ -78,7 +78,9 @@ public class AlgorithmStrategy implements AssignmentStrategy {
                     .orElseThrow();
 
             String who;
-            if (op.fixedUserId() != null) {
+            if (op.forcedUser()) {
+                who = "forced by the manager";
+            } else if (op.fixedUserId() != null) {
                 who = "fixed executor in OPC";
             } else if (chosen.id().equals(res.responsibleUserId())) {
                 who = String.format(Locale.ROOT, "responsible user of %s, load %.1f h", res.name(), state.loadOf(chosen.id()));

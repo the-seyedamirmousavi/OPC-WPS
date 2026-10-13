@@ -6,6 +6,7 @@ use App\Scheduling\Conflict;
 use App\Scheduling\Lanes;
 use App\Scheduling\Slot;
 use App\Scheduling\Task;
+use App\Scheduling\WorkCalendar;
 use Carbon\CarbonImmutable;
 
 /**
@@ -33,6 +34,10 @@ final class PlanView
         public readonly array $conflicts,
         public readonly array $honoured,
         public readonly array $escalated,
+        /** open operations left out of the plan, with the reason (e.g. their resource is inactive) */
+        public readonly array $unplanned = [],
+        /** working time; null: hours are continuous */
+        public readonly ?WorkCalendar $calendar = null,
     ) {
     }
 
@@ -56,9 +61,16 @@ final class PlanView
         return $this->slots === [] ? null : $this->at($this->makespanHours);
     }
 
-    /** Millisecond precision, so a FORCEd start comes back as exactly the instant that was forced. */
+    /**
+     * The instant $hours of planned work after now. With a working calendar, nights, days off and holidays are skipped.
+     * Millisecond precision, so a FORCEd start comes back as exactly the instant that was forced.
+     */
     public function at(float $hours): CarbonImmutable
     {
+        if ($this->calendar !== null) {
+            return $this->calendar->add($this->now, $hours);
+        }
+
         return $this->now->addMilliseconds((int) round($hours * 3_600_000));
     }
 }

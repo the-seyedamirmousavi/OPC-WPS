@@ -49,6 +49,20 @@ class ImportService
      */
     public function process(string $path, ?string $fileName, bool $apply, AppUser $actor, array $target = []): array
     {
+        $data = $this->parseWorkbook($path);
+        if ($data->format === 'UNKNOWN') {
+            return $this->finish($data, 'REJECTED', $fileName, $actor, [], [], null);
+        }
+
+        return $this->processParsed($data, $fileName, $apply, $actor, $target);
+    }
+
+    /**
+     * Reads a workbook into typed data without validating it against the database. A file that cannot be read or is not
+     * one of the two layouts comes back with format UNKNOWN and one error.
+     */
+    public function parseWorkbook(string $path): ParsedData
+    {
         try {
             $wb = IOFactory::load($path);
         } catch (Throwable $e) {
@@ -56,22 +70,29 @@ class ImportService
             $bad->format = 'UNKNOWN';
             $bad->error('-', 0, '-', 'The file is not a readable Excel workbook: ' . $e->getMessage());
 
-            return $this->finish($bad, 'REJECTED', $fileName, $actor, [], [], null);
+            return $bad;
         }
 
         if (SimpleParser::matches($wb)) {
-            $data = SimpleParser::parse($wb);
-        } elseif (SheetReader::has($wb, 'Resources') && SheetReader::has($wb, 'OPC')) {
-            $data = MasterParser::parse($wb);
-        } else {
-            $bad = new ParsedData();
-            $bad->format = 'UNKNOWN';
-            $bad->error('-', 0, '-', 'Unrecognised workbook. Expected the master template (sheets Resources, OPC, ...) '
-                . 'or the simple layout (sheets opc and source).');
-
-            return $this->finish($bad, 'REJECTED', $fileName, $actor, [], [], null);
+            return SimpleParser::parse($wb);
         }
+        if (SheetReader::has($wb, 'Resources') && SheetReader::has($wb, 'OPC')) {
+            return MasterParser::parse($wb);
+        }
+        $bad = new ParsedData();
+        $bad->format = 'UNKNOWN';
+        $bad->error('-', 0, '-', 'Unrecognised workbook. Expected the master template (sheets Resources, OPC, ...) '
+            . 'or the simple layout (sheets opc and source).');
 
+        return $bad;
+    }
+
+    /**
+     * Validates, and when clean and $apply is true writes, data that is already parsed. Files and the planning forms
+     * (no Excel needed) take this same path, so every rule, the schedule preview and the audit trail are shared.
+     */
+    public function processParsed(ParsedData $data, ?string $fileName, bool $apply, AppUser $actor, array $target = []): array
+    {
         $r = $this->resolveTarget($target, $data);
         $ranks = $r === null ? null : $this->resolveRanking($target, $r, $data);
         if ($data->errors === [] && $r !== null) {

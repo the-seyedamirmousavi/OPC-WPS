@@ -15,7 +15,9 @@ export default function AssignmentPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
-  const current = run ?? latest.data ?? null;
+  // Only a real run counts: an empty object (no proposals array) must never reach the render code.
+  const latestRun = latest.data && Array.isArray(latest.data.proposals) ? latest.data : null;
+  const current = run ?? latestRun;
   const mode = settings.data?.assignmentMode;
   const pending = (current?.proposals ?? []).filter((p) => p.status === "PENDING");
 
@@ -90,7 +92,7 @@ export default function AssignmentPage() {
             {t("asg.tryOther", { mode: t(`mode.${other}`) })}
           </Button>
         </div>
-        <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+        <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
           <div className={`rounded-lg border p-3 ${mode === "ALGORITHM" ? "border-accent bg-accent-soft" : "border-line"}`}>
             <dt className="font-medium">{t("mode.ALGORITHM")}</dt>
             <dd className="mt-1 text-xs text-ink-2">{t("mode.algoDesc")}</dd>

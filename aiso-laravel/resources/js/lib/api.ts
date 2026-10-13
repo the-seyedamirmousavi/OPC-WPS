@@ -25,10 +25,17 @@ async function parse(res: Response) {
       // outside React: a hard navigation also drops all client state
       window.location.href = "/login";
     }
-    const message =
+    let message =
       data && typeof data === "object" && "message" in data
         ? String((data as { message: unknown }).message)
         : `Request failed (${res.status})`;
+    // an unexpected server error carries a reference to its log entry and, for the owner, the cause
+    if (data && typeof data === "object") {
+      const { reference, detail } = data as { reference?: unknown; detail?: unknown };
+      const fa = cookie("aiso_lang") !== "en";
+      if (typeof reference === "string") message += ` (${fa ? "کد پیگیری" : "reference"}: ${reference})`;
+      if (typeof detail === "string") message += ` — ${detail}`;
+    }
     throw new ApiError(message, res.status);
   }
   return data;

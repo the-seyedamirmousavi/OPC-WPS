@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AssignmentMode;
+use App\Enums\PlanningGoal;
 use App\Enums\SystemStatus;
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,17 +17,22 @@ class SystemSetting extends Model
     protected $fillable = [
         'id', 'project_id', 'project_name', 'owner_id', 'manager_id', 'messenger_platform', 'system_status',
         'data_version', 'configuration_version', 'assignment_mode', 'max_active_tasks_per_user', 'language',
-        'require_completion_approval', 'updated_at',
+        'require_completion_approval', 'planning_goal', 'planning_focus_project', 'llm_api_key', 'llm_model', 'ai_writes_enabled', 'bale_bot_token', 'updated_at',
     ];
+
+    /** The encrypted AI token must never appear in a serialised model. */
+    protected $hidden = ['llm_api_key', 'bale_bot_token'];
 
     protected function casts(): array
     {
         return [
             'system_status' => SystemStatus::class,
             'assignment_mode' => AssignmentMode::class,
+            'planning_goal' => PlanningGoal::class,
             'max_active_tasks_per_user' => 'integer',
             'configuration_version' => 'integer',
             'require_completion_approval' => 'boolean',
+            'ai_writes_enabled' => 'boolean',
             'updated_at' => 'datetime',
         ];
     }
@@ -45,6 +51,7 @@ class SystemSetting extends Model
             'max_active_tasks_per_user' => 3,
             'language' => 'en',
             'require_completion_approval' => false,
+            'planning_goal' => PlanningGoal::PRIORITY,
             'updated_at' => now(),
         ]);
     }

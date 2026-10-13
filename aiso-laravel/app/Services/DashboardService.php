@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Enums\OperationStatus;
 use App\Enums\ReportType;
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Models\AppUser;
 use App\Models\AssignmentProposal;
 use App\Models\AuditEvent;
@@ -76,7 +76,7 @@ class DashboardService
 
         $users = [];
         foreach ($data->users as $u) {
-            if ($u->user_role->isExecutor()) {
+            if ($u->receivesTasks()) {
                 $users[] = $this->userLoad($u, $data);
             }
         }
@@ -92,8 +92,8 @@ class DashboardService
             'statusCounts' => self::statusCounts($data->ops),
             'progress' => self::progress($data, $plan),
             'assignmentMode' => $s->assignment_mode->value,
-            'llmAvailable' => !empty(config('aiso.llm.api_key')) && !empty(config('aiso.llm.model')),
-            'llmModel' => config('aiso.llm.model') ?: null,
+            'llmAvailable' => LlmConfig::configured() && app(LicenseService::class)->llmAllowed(),
+            'llmModel' => LlmConfig::model() ?: null,
             'pendingProposals' => AssignmentProposal::query()->where('status', 'PENDING')->count(),
             'ready' => $ready,
             'blocked' => $blocked,
@@ -117,12 +117,12 @@ class DashboardService
         $plan = $this->planService->plan($data);
         $s = $data->settings;
         $byRole = [];
-        foreach (Role::cases() as $r) {
-            $byRole[$r->value] = 0;
+        foreach (AppRole::query()->pluck('key') as $key) {
+            $byRole[$key] = 0;
         }
         $active = 0;
         foreach ($data->users as $u) {
-            $byRole[$u->user_role->value]++;
+            $byRole[$u->user_role] = ($byRole[$u->user_role] ?? 0) + 1;
             if ($u->isActive()) {
                 $active++;
             }
@@ -152,12 +152,13 @@ class DashboardService
             'dataVersion' => $s->data_version,
             'configurationVersion' => (int) $s->configuration_version,
             'assignmentMode' => $s->assignment_mode->value,
-            'llmAvailable' => !empty(config('aiso.llm.api_key')) && !empty(config('aiso.llm.model')),
-            'llmModel' => config('aiso.llm.model') ?: null,
+            'llmAvailable' => LlmConfig::configured() && app(LicenseService::class)->llmAllowed(),
+            'llmModel' => LlmConfig::model() ?: null,
             'messengerPlatform' => $s->messenger_platform,
             'requireCompletionApproval' => (bool) $s->require_completion_approval,
             'maxActiveTasksPerUser' => (int) $s->max_active_tasks_per_user,
             'usersByRole' => $byRole,
+            'roleNames' => AppRole::query()->pluck('name', 'key')->all(),
             'activeUsers' => $active,
             'statusCounts' => self::statusCounts($data->ops),
             'progress' => self::progress($data, $plan),
@@ -220,7 +221,7 @@ class DashboardService
         $data = $this->dataService->load();
         $out = [];
         foreach ($data->users as $u) {
-            if ($u->user_role->isExecutor()) {
+            if ($u->receivesTasks()) {
                 $out[] = $this->performance($u->id, $data);
             }
         }

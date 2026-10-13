@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Enums\OperationStatus;
 use App\Enums\ReportType;
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Exceptions\ApiException;
 use App\Models\AppUser;
 use App\Models\Operation;
@@ -88,7 +88,7 @@ class OperationService
     public function comment(string $id, ?string $note, AppUser $user): void
     {
         $op = $this->find($id);
-        if ($user->user_role->isExecutor() && $user->id !== $op->assigned_user_id) {
+        if ($user->receivesTasks() && $user->id !== $op->assigned_user_id) {
             throw ApiException::forbidden('This operation is not assigned to you');
         }
         if ($note === null || trim($note) === '') {
@@ -173,7 +173,7 @@ class OperationService
         if ($target === null) {
             throw ApiException::badRequest("Unknown user {$userId}");
         }
-        if (!$target->isActive() || !$target->user_role->isExecutor()) {
+        if (!$target->isActive() || !$target->receivesTasks()) {
             throw ApiException::badRequest("User {$userId} is not an active executive user");
         }
         $previous = $op->assigned_user_id;

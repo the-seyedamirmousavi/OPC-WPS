@@ -104,6 +104,12 @@ function Body({ d, mode, refresh }: { d: OperationDetail; mode: "manage" | "exec
     [t("op.plannedWindow"), `${date(o.plannedStart)} → ${date(o.plannedEnd)}`],
     [t("op.projectedWindow"), `${date(o.projectedStart)} → ${date(o.projectedEnd)}`],
   ];
+  if (o.forceState) {
+    rows.push([
+      `🔒 ${t("force.title")}`,
+      `${o.forcedStart ? date(o.forcedStart) : ""}${o.forcedStart && o.forcedUserId ? " · " : ""}${o.forcedUserId ?? ""} (${t(`force.state.${o.forceState}`)})`,
+    ]);
+  }
 
   return (
     <div className="space-y-5">

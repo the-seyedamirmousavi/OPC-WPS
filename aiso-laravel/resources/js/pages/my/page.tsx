@@ -26,7 +26,7 @@ export default function MyTasksPage() {
         <Kpi label={t("status.COMPLETED")} value={num(data.statusCounts.COMPLETED, 0)} sub={hours(p.completedHours)} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           <h2 className="text-sm font-semibold">{t("my.active")}</h2>
           {data.activeTasks.length === 0 && (

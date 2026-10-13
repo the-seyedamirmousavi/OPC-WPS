@@ -26,7 +26,10 @@ class AssignmentController extends Controller
 
     public function latest(): JsonResponse
     {
-        return response()->json($this->assignments->latest());
+        $run = $this->assignments->latest();
+
+        // response()->json(null) would send "{}"; the screens expect a real null when no run exists yet.
+        return $run === null ? JsonResponse::fromJsonString('null') : response()->json($run);
     }
 
     public function runs(Request $request): JsonResponse

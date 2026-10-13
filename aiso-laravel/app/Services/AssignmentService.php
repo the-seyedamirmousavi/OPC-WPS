@@ -35,6 +35,7 @@ class AssignmentService
         private readonly OperationService $operationService,
         private readonly AuditService $audit,
         private readonly LanguageService $lang,
+        private readonly LicenseService $license,
     ) {
     }
 
@@ -53,7 +54,12 @@ class AssignmentService
         $fallback = false;
         $warnings = [];
 
-        if ($mode === AssignmentMode::LLM) {
+        if ($mode === AssignmentMode::LLM && !$this->license->llmAllowed()) {
+            $warnings[] = 'LLM mode is not included in this license. The algorithm produced these proposals instead.';
+            $suggestion = app(AlgorithmStrategy::class)->suggest($ctx);
+            $effective = AssignmentMode::ALGORITHM;
+            $fallback = true;
+        } elseif ($mode === AssignmentMode::LLM) {
             try {
                 $suggestion = app(LlmStrategy::class)->suggest($ctx);
             } catch (LlmUnavailableException $e) {
@@ -248,7 +254,7 @@ class AssignmentService
 
         $users = [];
         foreach ($data->users as $u) {
-            if ($u->user_role->isExecutor()) {
+            if ($u->receivesTasks()) {
                 $users[] = new UserInfo($u->id, $u->full_name, $u->isActive(), $tasks[$u->id] ?? 0, $load[$u->id] ?? 0.0);
             }
         }

@@ -6,6 +6,7 @@ import com.aiso.domain.Operation;
 import com.aiso.domain.OperationReport;
 import com.aiso.domain.OperationStatus;
 import com.aiso.domain.Predecessor;
+import com.aiso.domain.ScheduleForce;
 import com.aiso.repo.OperationReportRepository;
 import com.aiso.service.Views.OperationDetail;
 import com.aiso.service.Views.OperationView;
@@ -86,6 +87,7 @@ public class OperationViewService {
         Item item = o.getItemId() == null ? null : data.items().get(o.getItemId());
         AppUser assigned = o.getAssignedUserId() == null ? null : data.users().get(o.getAssignedUserId());
         OperationStatus st = o.getStatus();
+        ScheduleForce force = data.forceOf(o.getId());
 
         boolean delayed = !st.isTerminal() && o.getPlannedEnd() != null && data.now().isAfter(o.getPlannedEnd());
         double delayHours = delayed ? Duration.between(o.getPlannedEnd(), data.now()).toSeconds() / 3600.0 : 0;
@@ -110,6 +112,8 @@ public class OperationViewService {
                 preds, st == OperationStatus.NOT_READY ? waiting : List.of(),
                 delayed, delayHours, late,
                 plan.tailHours().getOrDefault(o.getId(), 0.0),
-                o.getDescription());
+                o.getDescription(),
+                force == null ? null : force.getForcedStart(), force == null ? null : force.getForcedUserId(),
+                ForceService.stateOf(force, o, plan, data));
     }
 }

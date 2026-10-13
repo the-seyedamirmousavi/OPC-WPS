@@ -15,7 +15,18 @@ interface Bar {
  * packed into parallel lanes. The left edge is "now". Operations with a manager FORCE carry a lock and an outline
  * (red when the FORCE cannot be met).
  */
-export function Gantt({ ops, capacities, onOpen }: { ops: Operation[]; capacities: Record<string, number>; onOpen: (id: string) => void }) {
+export function Gantt({
+  ops,
+  capacities,
+  order = [],
+  onOpen,
+}: {
+  ops: Operation[];
+  capacities: Record<string, number>;
+  /** Resource ids in the order they were entered; rows follow it. Resources not listed come last. */
+  order?: string[];
+  onOpen: (id: string) => void;
+}) {
   const { t, date, hours } = useT();
   const items = ops.filter((o) => o.projectedStart && o.projectedEnd && o.status !== "COMPLETED" && o.status !== "CANCELLED");
   if (items.length === 0) return <Empty>{t("plan.empty")}</Empty>;
@@ -38,6 +49,9 @@ export function Gantt({ ops, capacities, onOpen }: { ops: Operation[]; capacitie
     byResource.set(op.resourceId, entry);
   }
 
+  const position = new Map(order.map((id, i) => [id, i]));
+  const rows = [...byResource.entries()].sort(([a], [b]) => (position.get(a) ?? Infinity) - (position.get(b) ?? Infinity));
+
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => new Date(min + span * f).toISOString());
 
   return (
@@ -48,7 +62,7 @@ export function Gantt({ ops, capacities, onOpen }: { ops: Operation[]; capacitie
             <span key={i}>{date(tk)}</span>
           ))}
         </div>
-        {[...byResource.entries()].map(([rid, r]) => (
+        {rows.map(([rid, r]) => (
           <div key={rid} className="flex border-b border-line py-1.5">
             <div className="w-40 shrink-0 pe-3 text-sm">
               <div className="truncate font-medium" title={r.name}>

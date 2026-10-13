@@ -4,7 +4,7 @@ namespace App\Imports;
 
 use App\Enums\OperationStatus;
 use App\Enums\ProjectStatus;
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Models\AppUser;
 use App\Models\Item;
 use App\Models\Operation;
@@ -15,6 +15,7 @@ use App\Models\WorkResource;
 use App\Services\AdminService;
 use App\Services\AuditService;
 use App\Services\DependencyService;
+use App\Services\LicenseService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +28,7 @@ class ImportApplier
     public function __construct(
         private readonly AuditService $audit,
         private readonly DependencyService $dependencies,
+        private readonly LicenseService $license,
     ) {
     }
 
@@ -42,6 +44,18 @@ class ImportApplier
             $keys = ['users', 'resources', 'items', 'operations', 'predecessors'];
             $created = array_fill_keys($keys, 0);
             $updated = array_fill_keys($keys, 0);
+
+            // licence limits are checked before anything is written; a refusal rolls the whole import back
+            $newUsers = 0;
+            foreach ($d->users as $u) {
+                if ($u['active'] && !AppUser::query()->whereKey($u['id'])->exists()) {
+                    $newUsers++;
+                }
+            }
+            $this->license->assertCanAddUsers($newUsers);
+            if ($target['isNew']) {
+                $this->license->assertCanAddProjects();
+            }
 
             if ($target['isNew']) {
                 $np = Project::query()->create([
@@ -99,7 +113,7 @@ class ImportApplier
                     AppUser::query()->create([
                         'id' => $u['id'],
                         'full_name' => $u['name'],
-                        'user_role' => Role::from($u['role']),
+                        'user_role' => $u['role'],
                         'messenger_id' => $u['messengerId'],
                         'active' => $u['active'],
                         'contact_info' => $u['contact'],
@@ -111,9 +125,9 @@ class ImportApplier
                     $this->audit->record($actor->id, 'USER_CREATED', 'User', $u['id'], null, $u['role'], 'Excel import');
                     $created['users']++;
                 } else {
-                    $before = $existing->user_role->value . '/' . ($existing->active ? 'true' : 'false');
+                    $before = $existing->user_role . '/' . ($existing->active ? 'true' : 'false');
                     $existing->full_name = $u['name'];
-                    $existing->user_role = Role::from($u['role']);
+                    $existing->user_role = $u['role'];
                     // an empty Messenger_ID cell keeps the chat the user connected from the app (see BaleLinkService)
                     if ($u['messengerId'] !== null && trim($u['messengerId']) !== '') {
                         $existing->messenger_id = $u['messengerId'];
@@ -149,6 +163,7 @@ class ImportApplier
                     $updated['resources']++;
                 }
             }
+            $this->orderResources(array_map(static fn (array $r): string => $r['id'], $d->resources));
 
             foreach ($d->items as $i) {
                 $item = Item::query()->find($i['id']);
@@ -240,6 +255,24 @@ class ImportApplier
 
             return $out;
         });
+    }
+
+    /**
+     * Keeps the input order: the resources in the file take the file's row order, resources the file does not mention
+     * follow them in the order they already had.
+     *
+     * @param string[] $listed resource ids in file order
+     */
+    private function orderResources(array $listed): void
+    {
+        if ($listed === []) {
+            return;
+        }
+        $rest = WorkResource::inEnteredOrder()->whereNotIn('id', $listed)->pluck('id')->all();
+        $n = 1;
+        foreach (array_merge($listed, $rest) as $id) {
+            WorkResource::query()->whereKey($id)->update(['sort_order' => $n++]);
+        }
     }
 
     private static function describeResource(WorkResource $r): string

@@ -3,7 +3,7 @@
 namespace App\Imports;
 
 use App\Enums\OperationStatus;
-use App\Enums\Role;
+use App\Services\RoleService;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 
 /** Parses the master template (sheets Resources, BOM, OPC, Predecessors, Users, Settings). */
@@ -233,8 +233,8 @@ final class MasterParser
             $role = null;
             if ($roleText === null) {
                 $d->error($s->name, $n, 'Role', 'Role is required');
-            } elseif (Role::tryFrom($roleText) === null) {
-                $d->error($s->name, $n, 'Role', 'Role must be one of OWNER, MANAGER, USER_1, USER_2, USER_3');
+            } elseif (!in_array($roleText, RoleService::assignableKeys(), true)) {
+                $d->error($s->name, $n, 'Role', 'Role must be one of ' . implode(', ', RoleService::assignableKeys()));
             } else {
                 $role = $roleText;
             }

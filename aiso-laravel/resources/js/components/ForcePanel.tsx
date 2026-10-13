@@ -37,7 +37,7 @@ export function ForcePanel({ ops, onChanged }: { ops: Operation[]; onChanged: ()
   const toast = useToast();
   const board = useFetch<ForceBoard>("/scheduling/forces", 30000);
   const users = useFetch<User[]>("/users");
-  const executors = (users.data ?? []).filter((u) => u.active && u.role.startsWith("USER_"));
+  const executors = (users.data ?? []).filter((u) => u.active && u.receivesTasks);
 
   const [opId, setOpId] = useState("");
   const [day, setDay] = useState("");

@@ -184,6 +184,15 @@ master("M3-gamma.xlsx",
        [("G-W1", "Weld bracket", "WELD", "", 3), ("G-P1", "Paint bracket", "PAINT", "", 2)],
        [("G-P1", "G-W1")])
 
+# ---------------------------------------------------------------------------------------------- manager FORCE (F)
+# F-A and F-B share machine R (capacity 1); F-C (on S) needs F-A; F-D (on S) is fixed to user1 in the OPC sheet.
+# Without FORCEs: F-A 0-4, F-B 4-8 on R; F-D 0-3, F-C 4-6 on S.
+master("F1-force.xlsx",
+       [("R", "Machine R", 1, ""), ("S", "Machine S", 1, "")],
+       [("F-A", "Cut frame", "R", "", 4), ("F-B", "Cut cover", "R", "", 4), ("F-C", "Weld frame", "S", "", 2),
+        ("F-D", "Weld cover", "S", "user1", 3)],
+       [("F-C", "F-A")])
+
 # ---------------------------------------------------------------------------------------------- import validation (I)
 master("I01-valid.xlsx",
        [("R-CUT", "Cutting", 1, ""), ("R-WELD", "Welding", 2, "user1"), ("R-PAINT", "Painting", 1, "")],

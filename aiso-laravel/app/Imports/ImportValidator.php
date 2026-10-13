@@ -3,7 +3,7 @@
 namespace App\Imports;
 
 use App\Enums\OperationStatus;
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Models\AppUser;
 use App\Models\Item;
 use App\Models\Operation;
@@ -52,25 +52,28 @@ class ImportValidator
         foreach ($dbUsers as $u) {
             $roleOf[$u->id] = $u->user_role;
         }
+        // the roles that give out management: only the owner may import or change them
+        $managerial = AppRole::query()->get()->filter(fn (AppRole $r) => $r->isManagerial())->pluck('key')->all();
         foreach ($d->users as $u) {
             $existing = $dbUsers[$u['id']] ?? null;
-            if ($u['role'] === Role::OWNER->value || ($existing !== null && $existing->user_role === Role::OWNER)) {
+            if ($u['role'] === AppRole::OWNER || ($existing !== null && $existing->user_role === AppRole::OWNER)) {
                 $d->error('Users', $u['row'], 'Role', 'The OWNER account cannot be created or changed by an import');
                 continue;
             }
-            if ($u['role'] === Role::MANAGER->value && $actor->user_role !== Role::OWNER) {
-                $d->error('Users', $u['row'], 'Role', 'Only the OWNER can import a MANAGER');
+            if (in_array($u['role'], $managerial, true) && !$actor->isOwner()) {
+                $d->error('Users', $u['row'], 'Role', 'Only the OWNER can import a role that manages others');
                 continue;
             }
-            if ($existing !== null && $existing->user_role === Role::MANAGER && $actor->user_role !== Role::OWNER) {
-                $d->error('Users', $u['row'], 'User_ID', 'Only the OWNER can change the MANAGER account');
+            if ($existing !== null && in_array($existing->user_role, $managerial, true) && !$actor->isOwner()) {
+                $d->error('Users', $u['row'], 'User_ID', 'Only the OWNER can change an account that manages others');
                 continue;
             }
-            $roleOf[$u['id']] = Role::from($u['role']);
+            $roleOf[$u['id']] = $u['role'];
         }
+        $executorRoles = AppRole::query()->where('receives_tasks', true)->pluck('key')->all();
         $executors = [];
         foreach ($roleOf as $id => $role) {
-            if ($role->isExecutor()) {
+            if (in_array($role, $executorRoles, true)) {
                 $executors[$id] = true;
             }
         }

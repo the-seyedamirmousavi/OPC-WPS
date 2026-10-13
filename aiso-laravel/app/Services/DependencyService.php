@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Enums\DependencyType;
 use App\Enums\OperationStatus;
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Models\AppUser;
 use App\Models\Operation;
 use App\Models\Predecessor;
@@ -108,7 +108,7 @@ class DependencyService
                 ?? $data->resources[$op->resource_id]->responsible_user_id;
             /** @var AppUser|null $u */
             $u = $responsible === null ? null : ($data->users[$responsible] ?? null);
-            if ($u !== null && $u->isActive() && $u->user_role->isExecutor()) {
+            if ($u !== null && $u->isActive() && $u->receivesTasks()) {
                 $this->notifications->notifyUser($u->id, 'OPERATION_READY',
                     "Operation {$op->id} ({$op->name}) is ready to be executed.", $op->id);
             }

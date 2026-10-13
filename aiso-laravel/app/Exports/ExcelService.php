@@ -3,8 +3,15 @@
 namespace App\Exports;
 
 use App\Imports\FaNames;
+use App\Enums\ProjectStatus;
+use App\Models\AppUser;
 use App\Models\AuditEvent;
 use App\Models\ImportLog;
+use App\Models\Item;
+use App\Models\Operation;
+use App\Models\Predecessor;
+use App\Models\Project;
+use App\Models\WorkResource;
 use App\Services\DashboardService;
 use App\Services\OperationViewService;
 use App\Services\PlanService;
@@ -83,6 +90,85 @@ class ExcelService
         }
 
         return self::write($o->book);
+    }
+
+    // ---- the plan as an importable workbook -----------------------------------------------------------------------
+
+    /**
+     * The current plan of one project in the master template layout, so it can be edited in Excel and imported again, plus
+     * a Schedule sheet with the projected start and end of every operation. Users are limited to executive users (an
+     * import cannot create managers or owners); Settings only names the project.
+     */
+    public function plan(bool $fa, ?string $projectId): string
+    {
+        $project = $projectId !== null && $projectId !== ''
+            ? Project::query()->find($projectId)
+            : Project::query()->where('status', ProjectStatus::ACTIVE->value)->orderBy('priority')->orderBy('id')->first();
+        $ops = $project === null ? collect() : Operation::query()->where('project_id', $project->id)->orderBy('id')->get();
+        $opIds = $ops->pluck('id')->all();
+        $itemIds = $ops->pluck('item_id')->filter()->unique()->values()->all();
+
+        $resources = [];
+        foreach (WorkResource::inEnteredOrder()->get() as $r) {
+            $resources[] = [$r->id, $r->name, $r->resource_type ?? '', $r->responsible_user_id ?? '', (int) $r->capacity, $r->status, $r->description ?? ''];
+        }
+        $items = [];
+        foreach (Item::query()->whereIn('id', $itemIds)->orderBy('id')->get() as $i) {
+            $items[] = [$i->id, $i->name, (float) $i->quantity, $i->unit ?? '', $i->supply_type ?? '', $i->related_operation_id ?? '', $i->description ?? ''];
+        }
+        $opRows = [];
+        foreach ($ops as $o) {
+            $opRows[] = [$o->id, $o->name, $o->item_id ?? '', $o->resource_id, $o->responsible_user_id ?? '',
+                (float) $o->preparation_time, (float) $o->transport_time, (float) $o->setup_time, (float) $o->direct_time, '', $o->description ?? ''];
+        }
+        $preds = [];
+        if ($opIds !== []) {
+            foreach (Predecessor::query()->whereIn('operation_id', $opIds)->orderBy('operation_id')->orderBy('predecessor_id')->get() as $p) {
+                $preds[] = [$p->operation_id, $p->predecessor_id, $p->dependency_type->value, $p->start_condition ?? '', $p->mandatory ? 'TRUE' : 'FALSE', $p->description ?? ''];
+            }
+        }
+        $users = [];
+        foreach (AppUser::query()->orderBy('id')->get() as $u) {
+            if ($u->receivesTasks()) {
+                $users[] = [$u->id, $u->full_name, $u->user_role, '', $u->active ? 'TRUE' : 'FALSE', $u->contact_info ?? ''];
+            }
+        }
+        $settings = [[$project?->id ?? '', $project?->name ?? '', '', '', '', '', '', '']];
+
+        $schedule = [];
+        $byId = array_flip($opIds);
+        foreach ($this->operations->all() as $v) {
+            if (!isset($byId[$v['id']])) {
+                continue;
+            }
+            $schedule[] = [$v['id'], $v['name'], $v['resourceName'], self::round($v['totalHours']),
+                $fa ? FaLabels::status($v['status']) : $v['status'],
+                self::when($fa, $v['projectedStart'] ?? null, true), self::when($fa, $v['projectedEnd'] ?? null, true)];
+        }
+
+        $o = new SheetWriter(new Spreadsheet(), $fa);
+        $names = $fa
+            ? ['منابع', 'قطعات', 'عملیات', 'پیش‌نیازها', 'کاربران', 'تنظیمات', 'برنامه زمان‌بندی']
+            : ['Resources', 'BOM', 'OPC', 'Predecessors', 'Users', 'Settings', 'Schedule'];
+        $o->sheet($names[0], self::hdr($fa, 'Resource_ID', 'Resource_Name', 'Resource_Type', 'Responsible_User_ID', 'Capacity', 'Status', 'Description'), $resources);
+        $o->sheet($names[1], self::hdr($fa, 'Item_ID', 'Item_Name', 'Quantity', 'Unit', 'Supply_Type', 'Related_Operation_ID', 'Description'), $items);
+        $o->sheet($names[2], self::hdr($fa, 'Operation_ID', 'Operation_Name', 'Item_ID', 'Resource_ID', 'Responsible_User_ID',
+            'Preparation_Time', 'Transport_Time', 'Setup_Time', 'Direct_Time', 'Operation_Status', 'Description'), $opRows);
+        $o->sheet($names[3], self::hdr($fa, 'Operation_ID', 'Predecessor_Operation_ID', 'Dependency_Type', 'Start_Condition', 'Is_Mandatory', 'Description'), $preds);
+        $o->sheet($names[4], self::hdr($fa, 'User_ID', 'Full_Name', 'Role', 'Messenger_ID', 'Active_Status', 'Contact_Info'), $users);
+        $o->sheet($names[5], self::hdr($fa, 'Project_ID', 'Project_Name', 'Owner_ID', 'Manager_ID', 'Messenger_Platform', 'System_Status', 'Data_Version', 'Configuration_Version'), $settings);
+        $o->sheet($names[6],
+            $fa ? ['شناسه عملیات', 'نام', 'منبع', 'مدت (ساعت)', 'وضعیت', 'شروع پیش‌بینی (شمسی)', 'پایان پیش‌بینی (شمسی)']
+                : ['Operation_ID', 'Name', 'Resource', 'Total_Hours', 'Status', 'Projected_Start', 'Projected_End'],
+            $schedule);
+
+        return self::write($o->book);
+    }
+
+    /** Headers of the master layout: canonical names in English, Persian names in the Persian workbook. */
+    private static function hdr(bool $fa, string ...$canonical): array
+    {
+        return $fa ? self::h(...$canonical) : $canonical;
     }
 
     /** @return string[] Persian headers for the canonical column names. */

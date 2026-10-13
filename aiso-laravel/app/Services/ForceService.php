@@ -120,7 +120,7 @@ class ForceService
         $startMissed = $f->forced_start !== null && !isset($plan->honoured[$op->id]);
         $u = $f->forced_user_id === null ? null : ($data->users[$f->forced_user_id] ?? null);
         $userInvalid = $f->forced_user_id !== null
-            && ($u === null || !$u->isActive() || !$u->user_role->isExecutor());
+            && ($u === null || !$u->isActive() || !$u->receivesTasks());
 
         return $startMissed || $userInvalid ? 'NOT_HONOURED' : 'HONOURED';
     }
@@ -367,7 +367,7 @@ class ForceService
         if ($userId !== null) {
             $u = $data->users[$userId] ?? null;
             $changeable = in_array($op->status, [OperationStatus::NOT_READY, OperationStatus::READY, OperationStatus::ASSIGNED], true);
-            if ($u === null || !$u->isActive() || !$u->user_role->isExecutor()) {
+            if ($u === null || !$u->isActive() || !$u->receivesTasks()) {
                 $out[] = self::finding0('USER_NOT_ALLOWED', $id, true, [],
                     $this->lang->forRequest("User {$userId} is not an active executive user"));
             } elseif (!$changeable && $op->assigned_user_id !== null && $userId !== $op->assigned_user_id) {

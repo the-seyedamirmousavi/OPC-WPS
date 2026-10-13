@@ -15,11 +15,21 @@ public record AssignmentContext(
      * @param plannedStartHours start of the operation in the optimised multi-project plan (hours from now)
      * @param tailHours   longest remaining chain of work that depends on this operation, itself included
      *                    (larger = more critical)
-     * @param fixedUserId executor fixed in the OPC sheet; a hard constraint when not null
+     * @param fixedUserId executor fixed in the OPC sheet - or by a manager FORCE; a hard constraint when not null
+     * @param forcedUser  true when {@code fixedUserId} comes from a manager FORCE: it then also overrides the
+     *                    active-task limit (a manager-overridable rule)
      */
     public record ReadyOp(String id, String name, String itemName, String resourceId, String resourceName,
                           double hours, double tailHours, String fixedUserId,
-                          String projectId, String projectName, int projectRank, double plannedStartHours) {
+                          String projectId, String projectName, int projectRank, double plannedStartHours,
+                          boolean forcedUser) {
+
+        public ReadyOp(String id, String name, String itemName, String resourceId, String resourceName,
+                       double hours, double tailHours, String fixedUserId,
+                       String projectId, String projectName, int projectRank, double plannedStartHours) {
+            this(id, name, itemName, resourceId, resourceName, hours, tailHours, fixedUserId, projectId, projectName,
+                    projectRank, plannedStartHours, false);
+        }
 
         /** Single-project form: no project priority, planned start unknown. */
         public ReadyOp(String id, String name, String itemName, String resourceId, String resourceName,

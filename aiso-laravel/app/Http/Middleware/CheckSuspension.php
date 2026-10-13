@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Enums\SystemStatus;
 use App\Exceptions\ApiException;
 use App\Models\SystemSetting;
@@ -26,7 +26,7 @@ class CheckSuspension
             return $next($request);
         }
         $user = $request->user();
-        if ($user !== null && $user->user_role === Role::OWNER) {
+        if ($user !== null && $user->user_role === AppRole::OWNER) {
             return $next($request);
         }
         if (SystemSetting::current()->system_status === SystemStatus::SUSPENDED) {

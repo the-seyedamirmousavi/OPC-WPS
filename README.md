@@ -1,10 +1,11 @@
-# AISO — MVP 0.2
+# AISO — MVP 0.3
 
 Operations dependency engine, **multi-project scheduling**, task assignment and dashboards, built from the project document `AISO.docx`.
 
 - **Backend**: Spring Boot 4.1 (Java 21), JPA + Flyway, Spring Security (JWT), Apache POI.
 - **Frontend**: Next.js 16 (App Router, TypeScript, Tailwind 4). Persian (RTL) by default with an English toggle, light/dark theme, **Solar Hijri (Jalali) calendar** for every date.
 - **Several projects are scheduled together** on shared resources. A manager ranks the projects; the optimiser honours that ranking strictly and fills every idle gap with lower-priority work, so wasted resource time is minimised.
+- **Manager FORCE**: a manager can fix when an operation starts and/or who does it. The schedule is rebuilt around it, moving as little as possible; an impossible FORCE is refused with the reason (and whether it is provably impossible). See [Manager FORCE](#manager-force).
 - **Task assignment has two interchangeable methods**, switchable at runtime:
   1. **Algorithm**: deterministic dispatching rule (project priority, then the optimised plan's order, then critical path; resource capacity and per-user task limit respected; least-loaded user wins).
   2. **LLM**: a large language model reads the same project snapshot and proposes assignments with reasons. Its output is re-validated against the same hard constraints (and the project-priority rule) before anyone sees it.
@@ -21,6 +22,14 @@ In both modes the system only **proposes**. A manager approves, as the document 
 - Resources (and their capacity) are **shared**; operation ids are unique across projects; dependencies cannot cross projects.
 - Strict priority: a higher-priority project is never delayed by a lower-priority one. Running (IN_PROGRESS) operations are never moved.
 - How waste is minimised, and how it is measured, is in [docs/DESIGN.md](docs/DESIGN.md) §8.
+
+## Manager FORCE
+
+- *Plan* page → **Manager FORCE**: choose an operation, a start (Solar Hijri date in Persian mode + Tehran time) and/or an executor, a reason → **Preview impact** → **Apply**. The preview lists conflicts (refused), what the FORCE overrides (project priority, the OPC executor, the task limit), the operations that move (already assigned ones marked), project finish changes and idle resource time before/after. Nothing is stored before *Apply*.
+- Hard rules a FORCE can never break: resource capacity, mandatory dependencies, running work, the past, inactive resources/users. Conflicts are reported as **proven** (impossible for any schedule) or **not found** (the heuristic found no schedule; one may exist).
+- Stability: the plan saved when a FORCE changes is the reference; later re-planning keeps operations where they are unless moving them makes a higher-priority project finish earlier. Already assigned work is the last to move. *Re-optimise from scratch* drops that preference once.
+- A forced executor is what both assignment methods propose (task limit overridden); manual assignment to someone else is refused. A FORCE that later becomes impossible stays visible as *not met*, with the reason.
+- Design, objective and measured cost: [docs/DESIGN.md](docs/DESIGN.md) §10.
 
 ## Persian and Solar Hijri support
 
@@ -113,3 +122,4 @@ python test-data/generate_test_data.py     # regenerates the Excel files used by
 - One Excel file = one project (no project column inside a file yet).
 - Texts the system generates in Persian use Latin digits in numbers; dates use Persian digits.
 - The audit table is append-only by application code. Making it tamper-proof at database level is a deployment task.
+- Manager FORCE: no alternative resources exist in the data model, so a FORCE fixes time and executor, not the machine. Escalated predecessors of a FORCE are placed as early as possible, not just in time. The plan is recomputed per request (about 1.5–2 s at 1000 operations with 20 FORCEs); there is no plan cache yet.

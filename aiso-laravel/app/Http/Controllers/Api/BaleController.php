@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SystemSetting;
 use App\Services\BaleLinkService;
+use App\Services\LicenseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,6 +26,7 @@ class BaleController extends Controller
 
     public function linkCode(Request $request): JsonResponse
     {
+        app(LicenseService::class)->assertBaleAllowed();
         $code = $this->links->createLinkCode($this->actor($request));
 
         return response()->json(['code' => $code, 'expiresInMinutes' => BaleLinkService::CODE_MINUTES]);

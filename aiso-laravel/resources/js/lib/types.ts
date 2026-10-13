@@ -1,4 +1,5 @@
-export type Role = "OWNER" | "MANAGER" | "USER_1" | "USER_2" | "USER_3";
+/** A role key: the built-in ones (OWNER, MANAGER, USER_1..3, AGENT) or one the company defined. */
+export type Role = string;
 export type OpStatus =
   | "NOT_READY"
   | "READY"
@@ -23,10 +24,18 @@ export interface User {
   id: string;
   fullName: string;
   role: Role;
+  /** the name of the role (for the company's own roles, what the company called it) */
+  roleName: string;
+  /** what the role lets the person do (the owner holds all of them); see lib/capabilities.ts */
+  capabilities: string[];
+  /** whether operations are assigned to this person */
+  receivesTasks: boolean;
   messengerId: string | null;
   active: boolean;
   contactInfo: string | null;
   mustChangePassword: boolean;
+  /** an AI agent: a virtual user (role AGENT) that cannot sign in */
+  isAgent?: boolean;
   createdAt: string;
 }
 
@@ -198,6 +207,7 @@ export interface OwnerDashboard {
   requireCompletionApproval: boolean;
   maxActiveTasksPerUser: number;
   usersByRole: Partial<Record<Role, number>>;
+  roleNames: Record<Role, string>;
   activeUsers: number;
   statusCounts: StatusCounts;
   progress: Progress;
@@ -285,6 +295,15 @@ export interface Settings {
   requireCompletionApproval: boolean;
   llmAvailable: boolean;
   llmModel: string;
+  /** The AI token itself is never sent: only whether one is set, where it comes from and its last four characters. */
+  llmKeySet: boolean;
+  llmKeySource: "settings" | "environment" | null;
+  llmKeyHint: string | null;
+  llmBaseUrl: string;
+  /** The Bale bot token: only whether one is set, where it comes from and its last four characters. */
+  baleKeySet: boolean;
+  baleKeySource: "settings" | "environment" | null;
+  baleKeyHint: string | null;
   language: "fa" | "en";
 }
 
@@ -481,4 +500,163 @@ export interface ForceImpact {
   projects: ProjectShift[];
   wasteBefore: number;
   wasteAfter: number;
+}
+
+// ---- departments (owner panels; suggestions to the manager) -------------------------------------------------------
+
+export type DepartmentRole = "HEAD" | "MEMBER";
+export type DepartmentPermission = "PANEL_VIEW" | "RESOURCES_MANAGE" | "SUGGESTIONS_SUBMIT";
+export type SuggestionStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+export interface DepartmentSummary {
+  id: number;
+  name: string;
+  /** special role of the department: HR or PRODUCTION, or null */
+  code: string | null;
+  description: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  sortOrder: number;
+  memberCount: number;
+  resourceCount: number;
+  staleResourceCount: number;
+  pendingSuggestions: number;
+  /** the owner's directory only */
+  heads?: { userId: string; fullName: string | null }[];
+  /** the owner's directory only: HR has activeUsers; production has ready, inProgress, blocked; others null */
+  metrics?: Record<string, number> | null;
+}
+
+export interface DepartmentMemberView {
+  userId: string;
+  fullName: string | null;
+  role: DepartmentRole;
+  active: boolean;
+}
+
+export interface DepartmentResourceView {
+  id: string;
+  name: string;
+  resourceType: string | null;
+  capacity: number;
+  status: string;
+  description: string | null;
+  reviewedAt: string | null;
+  stale: boolean;
+}
+
+export interface ResourceChoice {
+  id: string;
+  name: string;
+  departmentId: number | null;
+  departmentName: string | null;
+}
+
+export interface DepartmentSuggestion {
+  id: number;
+  departmentId: number;
+  departmentName: string | null;
+  title: string;
+  body: string;
+  status: SuggestionStatus;
+  resourceId: string | null;
+  resourceName: string | null;
+  authorId: string;
+  authorName: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  managerNote: string | null;
+}
+
+/** A department in the main menu of the person looking at it. */
+export interface DepartmentMenuItem {
+  id: number;
+  name: string;
+  code: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  isHr: boolean;
+  /** the person heads this department */
+  headOf: boolean;
+}
+
+/** What the person looking at a panel may do. The server checks the same rules. */
+export interface DepartmentAbilities {
+  manageDepartment: boolean;
+  manageMembers: boolean;
+  managePermissions: boolean;
+  assignResources: boolean;
+  viewUsers: boolean;
+  viewAudit: boolean;
+  viewAgents: boolean;
+  viewImports: boolean;
+  viewManagerDashboard: boolean;
+  viewPlanning: boolean;
+  manageResources: boolean;
+  submitSuggestions: boolean;
+}
+
+export interface DepartmentPanel extends DepartmentSummary {
+  isHr: boolean;
+  /** null for the owner; a member sees their own role only */
+  myRole: DepartmentRole | null;
+  abilities: DepartmentAbilities;
+  members: DepartmentMemberView[];
+  resources: DepartmentResourceView[];
+  suggestions: DepartmentSuggestion[];
+  reviewDays: number;
+  /** owner only */
+  permissions?: Record<DepartmentRole, DepartmentPermission[]>;
+  /** owner only */
+  permissionCatalog?: DepartmentPermission[];
+  /** owner only */
+  allResources?: ResourceChoice[];
+}
+
+// ---- AI agents: virtual users, made by the owner or by a manager through the assistant -----------------------------
+
+export interface AgentTask {
+  id: number;
+  agentId: string;
+  createdBy: string;
+  instruction: string;
+  status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+  result: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  instructions: string | null;
+  /** department slugs the agent may read: hr, production, dept-{id} */
+  scope: string[];
+  active: boolean;
+  createdBy: string | null;
+  createdAt: string | null;
+  tasks: AgentTask[];
+}
+
+// ---- what the owner lets the assistant do, and the requests waiting for the owner ----------------------------------
+
+export type AiPolicyMode = "DENY" | "AUTO" | "SELF" | "OWNER";
+
+export interface AiPolicies {
+  writesEnabled: boolean;
+  actions: { kind: "production" | "hr" | "general"; action: string; risk: "low" | "medium" | "high"; mode: AiPolicyMode; default: AiPolicyMode }[];
+}
+
+export interface AiApproval {
+  id: number;
+  department: string;
+  operation: string;
+  params: Record<string, unknown>;
+  reason: string | null;
+  risk: "low" | "medium" | "high";
+  status: string;
+  approval: string;
+  expires_at: string;
+  requested_by: string;
+  requested_by_name: string;
 }

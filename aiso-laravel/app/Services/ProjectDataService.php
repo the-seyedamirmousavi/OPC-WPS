@@ -37,7 +37,7 @@ class ProjectDataService
             SystemSetting::current(),
             self::keyed(Project::query()->get(), fn (Project $p) => $p->id),
             $ops,
-            self::keyed(WorkResource::query()->get(), fn (WorkResource $r) => $r->id),
+            self::keyed(WorkResource::inEnteredOrder()->get(), fn (WorkResource $r) => $r->id),
             self::keyed(AppUser::query()->get(), fn (AppUser $u) => $u->id),
             self::keyed(Item::query()->get(), fn (Item $i) => $i->id),
             $preds,
@@ -45,7 +45,8 @@ class ProjectDataService
             self::keyed(ScheduleForce::query()->get(), fn (ScheduleForce $f) => $f->operation_id),
             self::keyed(PlanBaseline::query()->get(), fn (PlanBaseline $b) => $b->operation_id),
             // planner times are in milliseconds: FORCEd instants round-trip exactly
-            CarbonImmutable::createFromTimestampMs((int) floor(microtime(true) * 1000)),
+            // (Carbon's clock, so a test can fix the moment)
+            CarbonImmutable::createFromTimestampMs(CarbonImmutable::now()->getTimestampMs()),
         );
     }
 

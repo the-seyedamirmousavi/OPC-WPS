@@ -13,7 +13,8 @@ interface Bar {
 
 /**
  * Projected schedule (capacity-constrained plan) per resource. Operations on a resource with capacity > 1 are
- * packed into parallel lanes. The left edge is "now".
+ * packed into parallel lanes. The left edge is "now". Operations with a manager FORCE carry a lock and an outline
+ * (red when the FORCE cannot be met).
  */
 export function Gantt({ ops, capacities, onOpen }: { ops: Operation[]; capacities: Record<string, number>; onOpen: (id: string) => void }) {
   const { t, date, hours } = useT();
@@ -63,15 +64,20 @@ export function Gantt({ ops, capacities, onOpen }: { ops: Operation[]; capacitie
                 <button
                   key={b.op.id}
                   onClick={() => onOpen(b.op.id)}
-                  title={`${b.op.projectName} · ${b.op.id} ${b.op.name}\n${date(b.op.projectedStart)} → ${date(b.op.projectedEnd)}\n${hours(b.op.totalHours)}`}
+                  title={`${b.op.projectName} · ${b.op.id} ${b.op.name}\n${date(b.op.projectedStart)} → ${date(b.op.projectedEnd)}\n${hours(b.op.totalHours)}${
+                    b.op.forceState ? `\n🔒 ${t("force.locked")}: ${t(`force.state.${b.op.forceState}`)}` : ""
+                  }`}
                   style={{
                     insetInlineStart: `${((b.start - min) / span) * 100}%`,
                     width: `max(${((b.end - b.start) / span) * 100}%, 6px)`,
                     top: b.lane * 26,
                     background: STATUS_COLOR[b.op.status],
                   }}
-                  className="absolute h-5 overflow-hidden whitespace-nowrap rounded px-1 text-start text-[11px] font-medium leading-5 text-white outline-offset-1 ring-2 ring-surface"
+                  className={`absolute h-5 overflow-hidden whitespace-nowrap rounded px-1 text-start text-[11px] font-medium leading-5 text-white outline-offset-1 ring-2 ${
+                    b.op.forceState === "NOT_HONOURED" ? "ring-bad" : b.op.forceState === "HONOURED" ? "ring-ink" : "ring-surface"
+                  }`}
                 >
+                  {b.op.forceState && b.op.forceState !== "DONE" && <span aria-label={t("force.locked")}>🔒 </span>}
                   {b.op.id}
                 </button>
               ))}

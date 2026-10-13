@@ -43,7 +43,7 @@ export default function PlanPage() {
             </option>
           ))}
         </select>
-        <Gantt ops={project ? ops.data.filter((o) => o.projectId === project) : ops.data} capacities={capacities} onOpen={setOpen} />
+        <Gantt ops={project ? ops.data.filter((o) => o.projectId === project) : ops.data} capacities={capacities} order={dash.data.resources.map((r) => r.id)} onOpen={setOpen} />
         <p className="mt-3 text-xs text-ink-3">{t("plan.note")}</p>
       </Card>
       <div className="mt-4">

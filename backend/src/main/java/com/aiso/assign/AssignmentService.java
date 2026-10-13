@@ -11,6 +11,7 @@ import com.aiso.domain.AssignmentRun;
 import com.aiso.domain.Operation;
 import com.aiso.domain.OperationStatus;
 import com.aiso.domain.ProposalStatus;
+import com.aiso.domain.ScheduleForce;
 import com.aiso.domain.WorkResource;
 import com.aiso.repo.AssignmentProposalRepository;
 import com.aiso.repo.AssignmentRunRepository;
@@ -219,6 +220,11 @@ public class AssignmentService {
     public void manualAssign(String operationId, String userId, String note, CurrentUser actor) {
         tx.executeWithoutResult(status -> {
             ProjectData data = dataService.load();
+            ScheduleForce force = data.forceOf(operationId);
+            if (force != null && force.getForcedUserId() != null && !force.getForcedUserId().equals(userId)) {
+                throw ApiException.conflict("Operation " + operationId + " is forced to executor " + force.getForcedUserId()
+                        + " by the manager. Change or remove the FORCE first.");
+            }
             PlanService.PlanView plan = planService.plan(data);
             operationService.assign(operationId, userId, plan.start(operationId), plan.end(operationId), actor.id(),
                     "Manual assignment" + (note == null || note.isBlank() ? "" : ": " + note));
@@ -249,11 +255,15 @@ public class AssignmentService {
         List<ReadyOp> ready = new ArrayList<>();
         for (Operation o : data.ops().values()) {
             if (o.getStatus() == OperationStatus.READY) {
+                ScheduleForce force = data.forceOf(o.getId());
+                boolean forcedUser = force != null && force.getForcedUserId() != null;
                 ready.add(new ReadyOp(o.getId(), o.getName(),
                         o.getItemId() == null || data.items().get(o.getItemId()) == null ? null : data.items().get(o.getItemId()).getName(),
                         o.getResourceId(), data.resourceName(o.getResourceId()), o.totalHours(),
-                        plan.tailHours().getOrDefault(o.getId(), o.totalHours()), o.getResponsibleUserId(),
-                        o.getProjectId(), data.projectName(o.getProjectId()), data.rankOf(o), plan.startHours(o.getId())));
+                        plan.tailHours().getOrDefault(o.getId(), o.totalHours()),
+                        forcedUser ? force.getForcedUserId() : o.getResponsibleUserId(),
+                        o.getProjectId(), data.projectName(o.getProjectId()), data.rankOf(o), plan.startHours(o.getId()),
+                        forcedUser));
             }
         }
         List<UserInfo> users = data.users().values().stream()

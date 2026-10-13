@@ -7,6 +7,7 @@ use App\Enums\SystemStatus;
 use App\Exceptions\ApiException;
 use App\Models\AppUser;
 use App\Models\AssignmentProposal;
+use App\Models\DepartmentSuggestion;
 use App\Models\AssignmentRun;
 use App\Models\Item;
 use App\Models\Notification;
@@ -18,6 +19,7 @@ use App\Models\Project;
 use App\Models\ScheduleForce;
 use App\Models\SystemSetting;
 use App\Models\WorkResource;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 
 /** Owner settings, system status, controlled reset. */
@@ -74,6 +76,78 @@ class AdminService
         });
     }
 
+    /**
+     * Sets or clears the Bale bot token. A token is checked for the shape Bale gives its bots (digits, a colon, then the
+     * secret), stored encrypted, and never returned. Only its last four characters are ever shown.
+     */
+    public function setBale(?string $token, bool $clearToken, AppUser $actor): array
+    {
+        $token = $token === null ? null : trim($token);
+        if ($token !== null && $token !== '' && preg_match('/\A\d{5,}:[A-Za-z0-9_\-]{20,}\z/', $token) !== 1) {
+            throw ApiException::badRequest('The bot token must look like 123456789:ABCdef… (as given by @BotFather)');
+        }
+
+        return DB::transaction(function () use ($token, $clearToken, $actor) {
+            $s = SystemSetting::current();
+            $change = null;
+            if ($clearToken) {
+                $s->bale_bot_token = null;
+                $change = 'token removed';
+            } elseif ($token !== null && $token !== '') {
+                $s->bale_bot_token = Crypt::encryptString($token);
+                $change = 'token set';
+            }
+            if ($change !== null) {
+                self::saveChanged($s);
+                $this->audit->record($actor->id, 'BALE_SETTINGS_CHANGED', 'Settings', '1', null, $change, null);
+            }
+
+            return self::toView($s);
+        });
+    }
+
+    /**
+     * Stores the AI service token and model entered in the owner console. The token is encrypted with the application
+     * key and is not written to the audit trail (only that it was set or removed).
+     *
+     * @param string|null $apiKey   a new token; null or blank leaves the stored one alone
+     * @param string|null $model    a model id; blank goes back to the default
+     * @param bool        $clearKey remove the stored token (the environment token, if any, applies again)
+     */
+    public function setLlm(?string $apiKey, ?string $model, bool $clearKey, AppUser $actor): array
+    {
+        $apiKey = $apiKey === null ? null : trim($apiKey);
+        $model = $model === null ? null : trim($model);
+        if ($apiKey !== null && $apiKey !== '' && preg_match('/\A[\x21-\x7E]{8,500}\z/', $apiKey) !== 1) {
+            throw ApiException::badRequest('The token must be 8 to 500 characters without spaces');
+        }
+        if ($model !== null && $model !== '' && preg_match('/\A[A-Za-z0-9_.\-:\/]{1,100}\z/', $model) !== 1) {
+            throw ApiException::badRequest('The model id may only contain letters, digits and . _ - : /');
+        }
+
+        return DB::transaction(function () use ($apiKey, $model, $clearKey, $actor) {
+            $s = SystemSetting::current();
+            $changes = [];
+            if ($clearKey) {
+                $s->llm_api_key = null;
+                $changes[] = 'token removed';
+            } elseif ($apiKey !== null && $apiKey !== '') {
+                $s->llm_api_key = Crypt::encryptString($apiKey);
+                $changes[] = 'token set';
+            }
+            if ($model !== null) {
+                $s->llm_model = $model === '' ? null : $model;
+                $changes[] = 'model ' . ($model === '' ? 'reset to default' : $model);
+            }
+            if ($changes !== []) {
+                self::saveChanged($s);
+                $this->audit->record($actor->id, 'LLM_SETTINGS_CHANGED', 'Settings', '1', null, implode(', ', $changes), null);
+            }
+
+            return self::toView($s);
+        });
+    }
+
     public function setAssignmentMode(AssignmentMode $mode, AppUser $actor): array
     {
         return DB::transaction(function () use ($mode, $actor) {
@@ -110,8 +184,9 @@ class AdminService
 
     /**
      * Controlled reset: removes operational data (projects, operations, resources, items, predecessors, reports,
-     * proposals, notifications, manager FORCEs, the reference plan). Users, settings and the audit trail are kept; the
-     * reset itself is recorded with its reason.
+     * proposals, notifications, manager FORCEs, the reference plan, and the department suggestions about resources).
+     * Users, settings, departments with their members and permissions, and the audit trail are kept; the reset itself
+     * is recorded with its reason.
      */
     public function reset(?string $reason, AppUser $actor): void
     {
@@ -121,7 +196,7 @@ class AdminService
         DB::transaction(function () use ($reason, $actor) {
             foreach ([ScheduleForce::class, PlanBaseline::class, AssignmentProposal::class, AssignmentRun::class,
                 OperationReport::class, Notification::class, Predecessor::class, Operation::class, Project::class,
-                Item::class, WorkResource::class] as $model) {
+                Item::class, DepartmentSuggestion::class, WorkResource::class] as $model) {
                 $model::query()->delete();
             }
             $s = SystemSetting::current();
@@ -142,8 +217,6 @@ class AdminService
 
     public static function toView(SystemSetting $s): array
     {
-        $llm = config('aiso.llm');
-
         return [
             'projectId' => $s->project_id,
             'projectName' => $s->project_name,
@@ -156,8 +229,16 @@ class AdminService
             'assignmentMode' => $s->assignment_mode->value,
             'maxActiveTasksPerUser' => (int) $s->max_active_tasks_per_user,
             'requireCompletionApproval' => (bool) $s->require_completion_approval,
-            'llmAvailable' => !empty($llm['api_key']) && !empty($llm['model']),
-            'llmModel' => $llm['model'] ?: null,
+            'llmAvailable' => LlmConfig::configured() && app(LicenseService::class)->llmAllowed(),
+            'llmModel' => LlmConfig::model() ?: null,
+            // the token itself is never sent: only whether one is set, where it comes from and its last four characters
+            'llmKeySet' => LlmConfig::apiKey() !== null,
+            'llmKeySource' => LlmConfig::keySource(),
+            'llmKeyHint' => LlmConfig::keyHint(),
+            'llmBaseUrl' => LlmConfig::baseUrl(),
+            'baleKeySet' => BaleConfig::configured(),
+            'baleKeySource' => BaleConfig::keySource(),
+            'baleKeyHint' => BaleConfig::keyHint(),
             'language' => $s->language,
         ];
     }

@@ -13,9 +13,9 @@ import java.util.Optional;
  * is acceptable to the other:
  * <ol>
  *   <li>the user must be an active executive user;</li>
- *   <li>if the OPC sheet fixes an executor for the operation, only that user is allowed;</li>
+ *   <li>if the OPC sheet - or a manager FORCE, which takes precedence - fixes an executor, only that user is allowed;</li>
  *   <li>the resource must be active and have a free slot (ASSIGNED + IN_PROGRESS &lt; capacity);</li>
- *   <li>the user must stay at or below the configured active-task limit.</li>
+ *   <li>the user must stay at or below the configured active-task limit, unless a manager FORCE names that user.</li>
  * </ol>
  */
 public final class AssignmentState {
@@ -53,7 +53,9 @@ public final class AssignmentState {
             return Optional.of("User " + userId + " is unknown, inactive or not an executive user");
         }
         if (op.fixedUserId() != null && !op.fixedUserId().equals(userId)) {
-            return Optional.of("Operation " + operationId + " is fixed to executor " + op.fixedUserId());
+            return Optional.of(op.forcedUser()
+                    ? "Operation " + operationId + " is forced to executor " + op.fixedUserId() + " by the manager"
+                    : "Operation " + operationId + " is fixed to executor " + op.fixedUserId());
         }
         ResourceInfo res = resources.get(op.resourceId());
         if (res == null || !res.active()) {
@@ -62,7 +64,7 @@ public final class AssignmentState {
         if (freeSlots(op.resourceId()) <= 0) {
             return Optional.of("Resource " + res.name() + " is at capacity (" + res.capacity() + "/" + res.capacity() + ")");
         }
-        if (tasksOf(userId) >= maxActive) {
+        if (tasksOf(userId) >= maxActive && !op.forcedUser()) {
             return Optional.of("User " + userId + " already has " + tasksOf(userId) + " active tasks (limit " + maxActive + ")");
         }
         return Optional.empty();

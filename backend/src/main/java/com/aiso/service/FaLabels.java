@@ -32,7 +32,9 @@ public final class FaLabels {
             Map.entry("ASSIGNMENT_MODE_CHANGED", "تغییر روش تخصیص"), Map.entry("SYSTEM_STATUS_CHANGED", "تغییر وضعیت سیستم"),
             Map.entry("SYSTEM_RESET", "بازنشانی سیستم"), Map.entry("ASSIGNMENT_SUGGESTED", "پیشنهاد تخصیص"),
             Map.entry("PROJECT_CREATED", "ایجاد پروژه"), Map.entry("PROJECT_PRIORITIES_CHANGED", "تغییر اولویت پروژه‌ها"),
-            Map.entry("PROJECT_UPDATED", "به‌روزرسانی پروژه"));
+            Map.entry("PROJECT_UPDATED", "به‌روزرسانی پروژه"), Map.entry("FORCE_SET", "ثبت اجبار مدیر"),
+            Map.entry("FORCE_REMOVED", "حذف اجبار مدیر"), Map.entry("PLAN_REOPTIMIZED", "بهینه‌سازی دوبارهٔ برنامه"),
+            Map.entry("RESCHEDULE", "تغییر زمان برنامه‌ریزی‌شده"));
 
     private FaLabels() {
     }

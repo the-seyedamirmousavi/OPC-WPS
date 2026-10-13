@@ -2,12 +2,15 @@
 
 namespace App\Messaging;
 
+use App\Services\BaleConfig;
+use App\Support\HttpTls;
+use App\Support\NetworkDiagnosis;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
 /**
  * Minimal client for the Bale bot API (Telegram-like: https://tapi.bale.ai/bot{token}/{method}). Settings come from
- * config('aiso.bale'); the token is read from BALE_BOT_TOKEN. Failures are raised as BaleException without the token.
+ * config('aiso.bale') and the token from BaleConfig (Settings, else BALE_BOT_TOKEN). Failures are raised as BaleException without the token.
  */
 class BaleClient
 {
@@ -39,17 +42,17 @@ class BaleClient
     /** @return array<mixed> the "result" of a successful call */
     private function call(string $method, array $params = [], int $timeout = 15): array
     {
-        $token = (string) config('aiso.bale.token');
+        $token = (string) BaleConfig::token();
         if ($token === '') {
-            throw new BaleException('BALE_BOT_TOKEN is not set');
+            throw new BaleException('The Bale bot token is not set (Settings, or BALE_BOT_TOKEN in .env)');
         }
         $url = rtrim((string) config('aiso.bale.api_url'), '/') . "/bot{$token}/{$method}";
 
         try {
-            $response = Http::timeout($timeout)->acceptJson()->post($url, $params);
-        } catch (ConnectionException) {
-            // the message of a connection error contains the URL, which contains the token: say nothing about it
-            throw new BaleException("Bale API {$method} is unreachable");
+            $response = Http::withOptions(HttpTls::options())->timeout($timeout)->acceptJson()->post($url, $params);
+        } catch (ConnectionException $e) {
+            // the message of a connection error contains the URL, which contains the token: only the diagnosis is kept
+            throw new BaleException("Bale API {$method} is unreachable: " . NetworkDiagnosis::connection($e, $timeout));
         }
 
         $body = $response->json();

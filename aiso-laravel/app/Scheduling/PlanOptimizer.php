@@ -33,8 +33,13 @@ final class PlanOptimizer
     public const RULE_MOST_SUCCESSORS = 'MOST_SUCCESSORS';
     public const RULE_RANDOMIZED = 'RANDOMIZED';
     public const RULE_STABLE = 'STABLE';
+    /** Pooled (resource goal) rules: whatever can start earliest goes first; plain project order as a safety net. */
+    public const RULE_EARLIEST_START = 'EARLIEST_START';
+    public const RULE_PROJECT_ORDER = 'PROJECT_ORDER';
 
     private const EPS = 1e-9;
+    /** Id of the single pseudo project that holds all work in the resource goal. */
+    private const POOL = '*';
     /** A start that changed by less than a minute is not a move. */
     public const MOVE_EPS = 1.0 / 60;
     private const MAX_RANDOM_TRIALS = 48;
@@ -44,22 +49,25 @@ final class PlanOptimizer
      * @param Task[] $tasks
      * @param array<string, int> $capacities
      */
-    public static function optimize(array $tasks, array $capacities, ?Pins $pins = null): OptimizeResult
+    public static function optimize(array $tasks, array $capacities, ?Pins $pins = null, bool $pooled = false): OptimizeResult
     {
-        return self::run($tasks, $capacities, $pins ?? Pins::none(), false);
+        return self::run($tasks, $capacities, $pins ?? Pins::none(), false, $pooled);
     }
 
     /** The single-pass baseline (critical-path rule per project in priority order, no search) under the same FORCEs. */
     public static function naive(array $tasks, array $capacities, Pins $pins): OptimizeResult
     {
-        return self::run($tasks, $capacities, $pins, true);
+        return self::run($tasks, $capacities, $pins, true, false);
     }
 
     /**
+     * $pooled (the resource goal): the projects are not scheduled one after the other by priority. All open work is one
+     * pool and the candidate with the least wasted lane time wins; the length of the schedule only breaks ties.
+     *
      * @param Task[] $tasks
      * @param array<string, int> $capacities
      */
-    private static function run(array $tasks, array $capacities, Pins $pins, bool $naive): OptimizeResult
+    private static function run(array $tasks, array $capacities, Pins $pins, bool $naive, bool $pooled): OptimizeResult
     {
         $byId = SchedulePlanner::index($tasks);
         $requested = []; // seniority order
@@ -72,6 +80,10 @@ final class PlanOptimizer
         $conflicts = [];
         $active = ForceCheck::admissible($byId, $capacities, $requested, $conflicts);
         $projects = self::projects($byId);
+        $projectIds = array_map(static fn (array $p): string => $p['id'], $projects);
+        if ($pooled && !$naive) {
+            $projects = self::pool($byId);
+        }
         $successors = self::successors($byId);
 
         // Escalation: a FORCE whose predecessors end too late first gets its predecessor chain placed ahead of project
@@ -80,7 +92,7 @@ final class PlanOptimizer
         $escalatedForces = [];
         while (true) {
             $urgent = self::ancestors($byId, array_keys($escalatedForces), $active);
-            $a = self::attempt($byId, $capacities, $pins->reference, $active, $urgent, [], $projects, $successors, $naive);
+            $a = self::attempt($byId, $capacities, $pins->reference, $active, $urgent, [], $projects, $successors, $naive, $projectIds);
             $late = self::late($byId, $active, $a->placed);
             if ($late === []) {
                 break;
@@ -119,7 +131,7 @@ final class PlanOptimizer
                     $esc = $escalatedForces;
                     unset($esc[$j]);
                     $probe = self::attempt($byId, $capacities, $pins->reference, $without,
-                        self::ancestors($byId, array_keys($esc), $without), [], $projects, $successors, $naive);
+                        self::ancestors($byId, array_keys($esc), $without), [], $projects, $successors, $naive, $projectIds);
                     if (!in_array($oldestLate, self::late($byId, $without, $probe->placed), true)) {
                         $victim = $j;
                         $related = [$oldestLate];
@@ -169,8 +181,9 @@ final class PlanOptimizer
      * @param array<string, string[]> $successors
      */
     private static function attempt(array $byId, array $capacities, array $reference, array $active, array $urgent,
-                                    array $release, array $projects, array $successors, bool $naive): object
+                                    array $release, array $projects, array $successors, bool $naive, array $projectIds): object
     {
+        $pooled = !$naive && count($projects) === 1 && $projects[0]['id'] === self::POOL;
         $lanes = new Lanes($capacities);
         $placed = [];
         SchedulePlanner::placeRunning(array_values($byId), $placed, $lanes);
@@ -182,10 +195,27 @@ final class PlanOptimizer
             }
         }
         $rel = $release;
+        foreach ($byId as $id => $t) {
+            if ($t->release > 0) {
+                $rel[$id] = max($rel[$id] ?? 0.0, $t->release);
+            }
+        }
         foreach ($active as $id => $start) {
             if (!isset($placed[$id])) {
                 $rel[$id] = (float) $start;
             }
+        }
+        // assigned work: its executor already holds it, so it keeps the resource ahead of unassigned work of any priority
+        $held = [];
+        foreach ($byId as $id => $t) {
+            if ($t->held && !$t->running && !isset($placed[$id])) {
+                $held[$id] = true;
+            }
+        }
+        if ($held !== []) {
+            SchedulePlanner::pass($byId, $held, $placed, $lanes, static function (string $a, string $b) use ($byId): int {
+                return ($byId[$a]->projectRank <=> $byId[$b]->projectRank) ?: strcmp($a, $b);
+            }, $rel);
         }
         if ($urgent !== []) {
             $ls = self::latestStarts($byId, $urgent, $active, $successors);
@@ -222,6 +252,11 @@ final class PlanOptimizer
             if (!$naive) {
                 foreach (self::alternatives($project, $byId) as $alt) {
                     $options[] = $alt;
+                }
+                if ($pooled) {
+                    foreach (self::poolAlternatives($project, $byId) as $alt) {
+                        $options[] = $alt;
+                    }
                 }
                 $hasRef = false;
                 foreach (array_keys($mine) as $id) {
@@ -267,13 +302,21 @@ final class PlanOptimizer
             foreach ($options as $c) {
                 $t = self::trial($c, $byId, $project, $behind, $pending, $current, $currentLanes, $reference, $rel);
                 $candidates++;
-                if ($best === null || self::better($t['score'], $best['score'])) {
+                if ($best === null || self::better($t['score'], $best['score'], $pooled)) {
                     $best = $t;
                 }
             }
             $current = $best['placed'];
             $currentLanes = $best['lanes'];
             $chosen[$project['id']] = $best['rule'];
+        }
+
+        if ($pooled && isset($chosen[self::POOL])) {
+            // one rule scheduled the whole pool; report it for every project
+            foreach ($projectIds as $id) {
+                $chosen[$id] = $chosen[self::POOL];
+            }
+            unset($chosen[self::POOL]);
         }
 
         return (object) ['placed' => $current, 'lanes' => $currentLanes, 'rules' => $chosen, 'candidates' => $candidates];
@@ -390,8 +433,11 @@ final class PlanOptimizer
         return $waste;
     }
 
-    private static function better(array $a, array $b): bool
+    private static function better(array $a, array $b, bool $wasteFirst = false): bool
     {
+        if ($wasteFirst && abs($a['waste'] - $b['waste']) > self::EPS) {
+            return $a['waste'] < $b['waste'];
+        }
         foreach ($a['finishes'] as $i => $x) {
             $y = $b['finishes'][$i];
             if (abs($x - $y) > self::EPS) {
@@ -633,6 +679,87 @@ final class PlanOptimizer
         usort($projects, static fn (array $a, array $b): int => ($a['rank'] <=> $b['rank']) ?: strcmp($a['id'], $b['id']));
 
         return $projects;
+    }
+
+    /**
+     * All work as one pseudo project (the resource goal): one critical-path structure over every project, so the
+     * search looks at the whole pool instead of one project at a time.
+     *
+     * @param array<string, Task> $byId
+     * @return array<int, array<string, mixed>> exactly one element
+     */
+    private static function pool(array $byId): array
+    {
+        $all = array_values($byId);
+        $tail = SchedulePlanner::tails($all);
+
+        return [[
+            'id' => self::POOL,
+            'rank' => 1,
+            'tasks' => $all,
+            'tail' => $tail,
+            'head' => self::heads($all),
+            'descendants' => self::descendants($all),
+            'criticalPath' => self::criticalPath($tail),
+        ]];
+    }
+
+    /**
+     * Extra rules for the pool. EARLIEST_START keeps lanes busy by taking what could start first; PROJECT_ORDER is the
+     * plain priority order, so the resource goal can never end up with more idle time than that order would give.
+     *
+     * @return array<int, array{rule: string, priority: callable, release: array}>
+     */
+    private static function poolAlternatives(array $pool, array $byId): array
+    {
+        $tail = $pool['tail'];
+        $head = $pool['head'];
+
+        return [
+            self::candidate(self::RULE_EARLIEST_START, static function (string $a, string $b) use ($head, $tail): int {
+                return (($head[$a] ?? 0.0) <=> ($head[$b] ?? 0.0)) ?: (($tail[$b] ?? 0.0) <=> ($tail[$a] ?? 0.0)) ?: strcmp($a, $b);
+            }),
+            self::candidate(self::RULE_PROJECT_ORDER, static function (string $a, string $b) use ($byId, $tail): int {
+                return ($byId[$a]->projectRank <=> $byId[$b]->projectRank) ?: (($tail[$b] ?? 0.0) <=> ($tail[$a] ?? 0.0)) ?: strcmp($a, $b);
+            }),
+        ];
+    }
+
+    /**
+     * Earliest possible start of each task when capacity is ignored: the longest chain of predecessors before it
+     * (finish-to-start waits for the predecessor's end, start-to-start for its start). Only dependencies inside $tasks.
+     *
+     * @param Task[] $tasks
+     * @return array<string, float>
+     */
+    private static function heads(array $tasks): array
+    {
+        $byId = SchedulePlanner::index($tasks);
+        $memo = [];
+        $visit = static function (string $id, array $visiting) use (&$visit, &$memo, $byId): float {
+            if (isset($memo[$id])) {
+                return $memo[$id];
+            }
+            if (isset($visiting[$id])) {
+                return 0.0; // cycles are rejected at import
+            }
+            $visiting[$id] = true;
+            $start = 0.0;
+            foreach ($byId[$id]->deps as $d) {
+                if (!isset($byId[$d->predecessorId])) {
+                    continue;
+                }
+                $p = $visit($d->predecessorId, $visiting);
+                $start = max($start, $d->type === Dep::START_TO_START ? $p : $p + $byId[$d->predecessorId]->hours);
+            }
+
+            return $memo[$id] = $start;
+        };
+        foreach (array_keys($byId) as $id) {
+            $visit((string) $id, []);
+        }
+
+        return $memo;
     }
 
     /**

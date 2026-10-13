@@ -9,7 +9,7 @@ export default function Home() {
   const { user } = useSession();
   const navigate = useNavigate();
   useEffect(() => {
-    if (user) navigate(homeFor(user.role), { replace: true });
+    if (user) navigate(homeFor(user), { replace: true });
   }, [user, navigate]);
   return <Loading />;
 }

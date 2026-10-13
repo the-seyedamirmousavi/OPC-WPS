@@ -2,8 +2,12 @@
 
 use App\Exceptions\ApiException;
 use App\Http\Middleware\CheckSuspension;
-use App\Http\Middleware\EnsureRole;
+use App\Http\Middleware\EnforceLicense;
+use App\Http\Middleware\EnsureCapability;
+use App\Http\Middleware\EnsureOwner;
+use App\Http\Middleware\EnsureVendor;
 use App\Services\LanguageService;
+use App\Services\VendorAuth;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,15 +23,20 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // The vendor's device cookie is typed into the browser by hand, so it cannot be an encrypted Laravel cookie.
+        $middleware->encryptCookies(except: [VendorAuth::COOKIE]);
         $middleware->alias([
-            'role' => EnsureRole::class,
+            'can' => EnsureCapability::class,
+            'owner' => EnsureOwner::class,
             'suspension' => CheckSuspension::class,
+            'license' => EnforceLicense::class,
+            'vendor' => EnsureVendor::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         // Every /api error is answered as JSON {"message": "..."}, in the language of the request (as the Spring backend did).
-        $json = static function (Request $r, string $message, int $status): \Illuminate\Http\JsonResponse {
-            return response()->json(['message' => app(LanguageService::class)->forRequest($message)], $status);
+        $json = static function (Request $r, string $message, int $status, array $extra = []): \Illuminate\Http\JsonResponse {
+            return response()->json(['message' => app(LanguageService::class)->forRequest($message)] + $extra, $status);
         };
 
         $exceptions->render(function (ApiException $e, Request $r) use ($json) {
@@ -61,7 +70,16 @@ return Application::configure(basePath: dirname(__DIR__))
                 return $json($r, $e->getMessage() ?: 'Request failed', $e->getStatusCode());
             }
 
-            return $json($r, 'Unexpected server error', 500);
+            // The reference ties this answer to its entry in storage/logs, so the cause can be found. The owner also gets the
+            // cause itself (class and message, without server paths); other roles only get the reference.
+            $reference = 'E-' . strtoupper(\Illuminate\Support\Str::random(6));
+            \Illuminate\Support\Facades\Log::error("[{$reference}] " . $e::class . ': ' . $e->getMessage(), ['exception' => $e]);
+            $extra = ['reference' => $reference];
+            if ($r->user()?->isOwner()) {
+                $extra['detail'] = class_basename($e) . ': ' . mb_substr(str_replace(base_path(), '', $e->getMessage()), 0, 300);
+            }
+
+            return $json($r, 'Unexpected server error', 500, $extra);
         });
     })
     ->create();

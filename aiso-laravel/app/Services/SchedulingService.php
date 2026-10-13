@@ -105,7 +105,7 @@ class SchedulingService
             }
             $tardiness = 0.0;
             if ($p->due_date !== null && $tasks !== []) {
-                $due = ($p->due_date->getTimestamp() - $view->now->getTimestamp()) / 3600.0;
+                $due = PlanService::hoursFrom($view->now, $p->due_date);
                 $tardiness = max(0.0, $finish - $due);
             }
             $rank = $tasks === [] ? (int) $p->priority : $tasks[0]->projectRank;

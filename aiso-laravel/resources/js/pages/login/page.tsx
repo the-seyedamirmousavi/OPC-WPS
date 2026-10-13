@@ -14,14 +14,40 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // only the software vendor ever reaches this step: password accepted, authenticator code still owed
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState("");
+
+  const submitCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/auth/vendor-otp", { method: "POST", body: { code } });
+      navigate("/vendor", { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const { user } = await api<{ user: User }>("/auth/login", { method: "POST", body: { userId, password } });
-      setUser(user);
+      const r = await api<{ user?: User; vendor?: boolean; otp?: boolean }>("/auth/login", { method: "POST", body: { userId, password } });
+      if (r.vendor && r.otp) {
+        setNeedCode(true);
+        setBusy(false);
+        return;
+      }
+      if (r.vendor) {
+        // the software vendor signed in with their own credentials: their console, not the application
+        navigate("/vendor", { replace: true });
+        return;
+      }
+      setUser(r.user ?? null);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -38,6 +64,40 @@ export default function LoginPage() {
             {lang === "fa" ? "English" : "فارسی"}
           </Button>
         </div>
+        {needCode ? (
+          <form onSubmit={submitCode} className="space-y-4 rounded-xl border border-line bg-surface p-6">
+            <p className="text-sm text-ink-2">{t("login.otpHint")}</p>
+            {error && <Banner tone="error">{error}</Banner>}
+            <Field label={t("login.otpLabel")}>
+              <input
+                className={`${inputClass} ltr`}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={7}
+                autoFocus
+                required
+              />
+            </Field>
+            <Button type="submit" variant="primary" busy={busy} className="w-full">
+              {t("login.signIn")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setNeedCode(false);
+                setCode("");
+                setPassword("");
+                setError(null);
+              }}
+            >
+              {t("login.otpBack")}
+            </Button>
+          </form>
+        ) : (
         <form onSubmit={submit} className="space-y-4 rounded-xl border border-line bg-surface p-6">
           <p className="text-sm text-ink-2">{t("login.subtitle")}</p>
           {error && <Banner tone="error">{error}</Banner>}
@@ -51,6 +111,7 @@ export default function LoginPage() {
             {t("login.signIn")}
           </Button>
         </form>
+        )}
       </div>
     </main>
   );

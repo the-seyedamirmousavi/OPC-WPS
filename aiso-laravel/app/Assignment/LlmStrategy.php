@@ -2,6 +2,9 @@
 
 namespace App\Assignment;
 
+use App\Services\LlmConfig;
+use App\Support\HttpTls;
+use App\Support\NetworkDiagnosis;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -9,8 +12,8 @@ use Illuminate\Support\Facades\Log;
  * Asks the configured LLM to dispatch the READY operations and returns a structured answer.
  *
  * The model only proposes. Every pick is re-checked against the same hard constraints the algorithm uses
- * ({@see AssignmentState}); violating picks are dropped and reported as warnings. The API key comes from the
- * environment (ANTHROPIC_API_KEY) and is never stored in the database.
+ * ({@see AssignmentState}); violating picks are dropped and reported as warnings. The service is GapGPT (an
+ * OpenAI-compatible chat completions API); the token comes from {@see LlmConfig} and never leaves the server.
  */
 final class LlmStrategy implements AssignmentStrategy
 {
@@ -55,54 +58,75 @@ PROMPT;
 
     public function suggest(AssignmentContext $ctx): Suggestion
     {
-        $cfg = config('aiso.llm');
-        if (empty($cfg['api_key'])) {
-            throw new LlmUnavailableException('ANTHROPIC_API_KEY is not configured on the server');
+        $key = LlmConfig::apiKey();
+        $model = LlmConfig::model();
+        if ($key === null) {
+            throw new LlmUnavailableException('The AI service token is not set. The owner can enter it in the owner console.');
         }
-        if (empty($cfg['model'])) {
-            throw new LlmUnavailableException('AISO_LLM_MODEL is not set on the server');
+        if ($model === '') {
+            throw new LlmUnavailableException('The AI model is not set. The owner can enter it in the owner console.');
         }
         if ($ctx->ready === []) {
             return Suggestion::of([], [], 'No READY operations.');
         }
 
+        $timeout = (int) config('aiso.llm.timeout_seconds');
+        HttpTls::allowWait($timeout);
         try {
-            $response = Http::withHeaders([
-                'x-api-key' => $cfg['api_key'],
-                'anthropic-version' => '2023-06-01',
-                'content-type' => 'application/json',
-            ])->timeout((int) $cfg['timeout_seconds'])->post(rtrim($cfg['base_url'], '/') . '/v1/messages', [
-                'model' => $cfg['model'],
-                'max_tokens' => (int) $cfg['max_tokens'],
-                'system' => self::SYSTEM_PROMPT,
-                'messages' => [['role' => 'user', 'content' => self::snapshot($ctx)]],
-            ]);
+            $response = Http::withToken($key)
+                ->withOptions(HttpTls::options())
+                ->acceptJson()
+                ->timeout($timeout)
+                ->post(LlmConfig::baseUrl() . '/chat/completions', [
+                    'model' => $model,
+                    'max_tokens' => (int) config('aiso.llm.max_tokens'),
+                    'temperature' => 0.2,
+                    'messages' => [
+                        ['role' => 'system', 'content' => self::SYSTEM_PROMPT],
+                        ['role' => 'user', 'content' => self::snapshot($ctx)],
+                    ],
+                ]);
         } catch (\Throwable $e) {
+            // the full technical message goes to the log; the user gets a sentence that says what to do
             Log::warning('LLM assignment call failed: ' . $e->getMessage());
-            throw new LlmUnavailableException('LLM API call failed: ' . $e->getMessage(), $e);
+            throw new LlmUnavailableException('LLM API call failed: ' . NetworkDiagnosis::connection($e, $timeout), $e);
         }
         if (!$response->successful()) {
-            Log::warning('LLM assignment call failed: HTTP ' . $response->status());
-            throw new LlmUnavailableException('LLM API call failed: HTTP ' . $response->status());
+            Log::warning('LLM assignment call failed: HTTP ' . $response->status() . ' ' . mb_substr($response->body(), 0, 500));
+            throw new LlmUnavailableException('LLM API call failed: ' . NetworkDiagnosis::status($response, $key));
         }
 
         $body = $response->json();
-        if (($body['stop_reason'] ?? null) === 'refusal') {
-            throw new LlmUnavailableException('The model declined the request (stop reason: refusal)');
+        $choice = $body['choices'][0] ?? null;
+        if (($choice['finish_reason'] ?? null) === 'content_filter') {
+            throw new LlmUnavailableException('The model declined the request (content filter)');
         }
+        // the answer is a string; some providers send a list of text parts instead
+        $content = $choice['message']['content'] ?? '';
         $text = '';
-        foreach ($body['content'] ?? [] as $block) {
-            if (($block['type'] ?? null) === 'text') {
-                $text .= $block['text'] ?? '';
+        if (is_array($content)) {
+            foreach ($content as $part) {
+                $text .= is_array($part) ? (string) ($part['text'] ?? '') : (string) $part;
             }
+        } else {
+            $text = (string) $content;
         }
         $out = self::parseJson($text);
         if ($out === null) {
-            throw new LlmUnavailableException('The model returned no structured output');
+            Log::warning('LLM answer without JSON: ' . mb_substr($text, 0, 500));
+            throw new LlmUnavailableException(($choice['finish_reason'] ?? null) === 'length'
+                ? 'The answer of the model was cut off because it was too long. Raise AISO_LLM_MAX_TOKENS or try again.'
+                : 'The model returned no structured output');
         }
 
-        return self::validate($ctx, $out, $cfg['model'], $body['usage']['input_tokens'] ?? null,
-            $body['usage']['output_tokens'] ?? null);
+        try {
+            return self::validate($ctx, $out, $model, $body['usage']['prompt_tokens'] ?? null,
+                $body['usage']['completion_tokens'] ?? null);
+        } catch (\Throwable $e) {
+            // a model can answer with JSON of the wrong shape; that is a failed call, not a server error
+            Log::warning('LLM answer could not be processed: ' . $e->getMessage());
+            throw new LlmUnavailableException('The answer of the model has an unexpected structure and could not be used', $e);
+        }
     }
 
     /** The first JSON object in the text, or null. */
@@ -136,7 +160,7 @@ PROMPT;
         }
 
         // higher-priority projects claim capacity first, so lower-priority picks are the ones that no longer fit
-        $proposed = is_array($out['assignments'] ?? null) ? $out['assignments'] : [];
+        $proposed = is_array($out['assignments'] ?? null) ? array_values(array_filter($out['assignments'], 'is_array')) : [];
         usort($proposed, static function (array $a, array $b) use ($readyById): int {
             $ra = $readyById[$a['operationId'] ?? ''] ?? null;
             $rb = $readyById[$b['operationId'] ?? ''] ?? null;
@@ -167,7 +191,7 @@ PROMPT;
 
         self::repairPriorityInversions($ctx, $readyById, $picks, $placed, $warnings);
 
-        foreach (is_array($out['unassigned'] ?? null) ? $out['unassigned'] : [] as $s) {
+        foreach (is_array($out['unassigned'] ?? null) ? array_filter($out['unassigned'], 'is_array') : [] as $s) {
             $opId = $s['operationId'] ?? null;
             if (is_string($opId) && !isset($placed[$opId])) {
                 $notes[$opId] ??= self::blankTo($s['reason'] ?? null, 'Left unassigned by the model');

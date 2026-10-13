@@ -2,9 +2,11 @@
 
 namespace Database\Seeders;
 
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Imports\ImportService;
 use App\Models\AppUser;
+use App\Models\Department;
+use App\Models\DepartmentRolePermission;
 use App\Models\SystemSetting;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -25,11 +27,11 @@ class AisoSeeder extends Seeder
         }
         $password = (string) config('aiso.seed.password');
 
-        $this->add('owner', 'System Owner', Role::OWNER, $password);
-        $this->add('manager', 'Project Manager', Role::MANAGER, $password);
-        $this->add('user1', 'Executive User 1', Role::USER_1, $password);
-        $this->add('user2', 'Executive User 2', Role::USER_2, $password);
-        $this->add('user3', 'Executive User 3', Role::USER_3, $password);
+        $this->add('owner', 'System Owner', AppRole::OWNER, $password);
+        $this->add('manager', 'Project Manager', AppRole::MANAGER, $password);
+        $this->add('user1', 'Executive User 1', AppRole::USER_1, $password);
+        $this->add('user2', 'Executive User 2', AppRole::USER_2, $password);
+        $this->add('user3', 'Executive User 3', AppRole::USER_3, $password);
 
         $s = SystemSetting::current();
         $s->owner_id = 'owner';
@@ -39,6 +41,19 @@ class AisoSeeder extends Seeder
             $s->language = $language;
         }
         $s->save();
+
+        // The fixed departments: human resources (created by its migration) and production, which holds every planning
+        // page. A fresh installation starts with both.
+        if (config('aiso.seed.production_department') && !Department::query()->where('code', Department::PRODUCTION)->exists()) {
+            $production = Department::query()->create([
+                'name' => 'تولید', 'description' => null, 'status' => 'ACTIVE',
+                'sort_order' => (int) Department::query()->max('sort_order') + 1, 'code' => Department::PRODUCTION,
+            ]);
+            foreach ([['HEAD', 'PANEL_VIEW'], ['HEAD', 'RESOURCES_MANAGE'], ['HEAD', 'SUGGESTIONS_SUBMIT'],
+                ['MEMBER', 'PANEL_VIEW'], ['MEMBER', 'SUGGESTIONS_SUBMIT']] as [$role, $permission]) {
+                DepartmentRolePermission::query()->create(['department_id' => $production->id, 'role' => $role, 'permission' => $permission]);
+            }
+        }
 
         // Demo data: the sample workbook (16 operations, 1 project) so every screen has something to show.
         if (config('aiso.seed.demo_data')) {
@@ -51,7 +66,7 @@ class AisoSeeder extends Seeder
         }
     }
 
-    private function add(string $id, string $name, Role $role, string $password): void
+    private function add(string $id, string $name, string $role, string $password): void
     {
         AppUser::query()->create([
             'id' => $id,

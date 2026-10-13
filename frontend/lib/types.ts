@@ -73,6 +73,10 @@ export interface Operation {
   late: boolean;
   tailHours: number;
   description: string | null;
+  /** manager FORCE on this operation (null when none) */
+  forcedStart: string | null;
+  forcedUserId: string | null;
+  forceState: ForceState | null;
 }
 
 export interface OpReport {
@@ -399,4 +403,82 @@ export interface SchedulingOverview {
   optimized: PlanMetrics;
   naive: PlanMetrics;
   projects: ProjectSummary[];
+}
+
+// ---------------------------------------------------------------- manager FORCE
+
+/** HONOURED: in force and met; NOT_HONOURED: impossible now (see conflict); DONE: the operation started or finished */
+export type ForceState = "HONOURED" | "NOT_HONOURED" | "DONE";
+
+export interface Finding {
+  kind: string;
+  operationId: string | null;
+  /** conflicts: true = impossible for every schedule; false = the planner found no schedule (one may exist) */
+  proven: boolean;
+  related: string[];
+  message: string;
+}
+
+export interface ForceView {
+  operationId: string;
+  operationName: string;
+  projectId: string;
+  projectName: string;
+  projectRank: number;
+  resourceName: string;
+  operationStatus: OpStatus;
+  forcedStart: string | null;
+  forcedUserId: string | null;
+  forcedUserName: string | null;
+  reason: string | null;
+  createdBy: string;
+  createdAt: string;
+  state: ForceState;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  conflict: Finding | null;
+}
+
+export interface ForceBoard {
+  forces: ForceView[];
+  conflicts: Finding[];
+  escalated: number;
+  baselineSavedAt: string | null;
+}
+
+export interface MovedOp {
+  operationId: string;
+  name: string;
+  projectName: string;
+  committed: boolean;
+  before: string;
+  after: string;
+  shiftHours: number;
+}
+
+export interface ProjectShift {
+  projectId: string;
+  name: string;
+  priority: number;
+  before: string | null;
+  after: string | null;
+  deltaHours: number;
+}
+
+export interface ForceImpact {
+  feasible: boolean;
+  operationId: string;
+  currentStart: string | null;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  forcedUserId: string | null;
+  conflicts: Finding[];
+  warnings: Finding[];
+  movedCount: number;
+  committedMoved: number;
+  totalShiftHours: number;
+  moved: MovedOp[];
+  projects: ProjectShift[];
+  wasteBefore: number;
+  wasteAfter: number;
 }

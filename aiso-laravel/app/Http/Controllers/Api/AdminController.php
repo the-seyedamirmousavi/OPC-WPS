@@ -7,6 +7,8 @@ use App\Enums\SystemStatus;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Imports\ImportService;
+use App\Messaging\BaleClient;
+use App\Messaging\BaleException;
 use App\Services\AdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,6 +40,51 @@ class AdminController extends Controller
         return response()->json($this->admin->update($v['projectName'] ?? null, $v['messengerPlatform'] ?? null,
             isset($v['maxActiveTasksPerUser']) ? (int) $v['maxActiveTasksPerUser'] : null,
             $v['requireCompletionApproval'] ?? null, $v['language'] ?? null, $this->actor($request)));
+    }
+
+    /**
+     * The AI service token and model. The token is write-only: it is stored encrypted and never returned.
+     * clearKey removes the stored token.
+     */
+    public function llm(Request $request): JsonResponse
+    {
+        $v = $this->input($request, [
+            'apiKey' => 'nullable|string|max:500',
+            'model' => 'nullable|string|max:100',
+            'clearKey' => 'nullable|boolean',
+        ]);
+
+        // an empty model field arrives as null (empty strings are converted); a model key that is present means "reset"
+        $model = $request->exists('model') ? (string) ($v['model'] ?? '') : null;
+
+        return response()->json($this->admin->setLlm($v['apiKey'] ?? null, $model,
+            (bool) ($v['clearKey'] ?? false), $this->actor($request)));
+    }
+
+    /**
+     * The Bale bot token. Write-only: it is stored encrypted and never returned; clearToken removes the stored one (the
+     * environment token, if any, applies again).
+     */
+    public function bale(Request $request): JsonResponse
+    {
+        $v = $this->input($request, [
+            'token' => 'nullable|string|max:200',
+            'clearToken' => 'nullable|boolean',
+        ]);
+
+        return response()->json($this->admin->setBale($v['token'] ?? null, (bool) ($v['clearToken'] ?? false), $this->actor($request)));
+    }
+
+    /** Asks Bale who the bot is (getMe) with the token in use, so the owner knows the connection works. The token is not returned. */
+    public function baleCheck(): JsonResponse
+    {
+        try {
+            $me = app(BaleClient::class)->getMe();
+        } catch (BaleException $e) {
+            throw new ApiException(502, $e->getMessage());
+        }
+
+        return response()->json(['username' => (string) ($me['username'] ?? ''), 'isBot' => (bool) ($me['is_bot'] ?? false)]);
     }
 
     /** Switches between the algorithm and the LLM for task assignment. */

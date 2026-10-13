@@ -27,5 +27,10 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="AISO_SEED_ENABLED" value="false"/>
         <env name="AISO_SEED_DEMO_DATA" value="false"/>
+        <env name="AISO_SEED_PRODUCTION_DEPARTMENT" value="false"/>
+        <!-- the tests never use a real AI token, even when the development environment file has one -->
+        <env name="AISO_LLM_API_KEY" value=""/>
+        <!-- continuous time in tests; WorkCalendarTest and the scheduling scenarios turn the working calendar on -->
+        <env name="AISO_WORK_CALENDAR" value="false"/>
     </php>
 </phpunit>

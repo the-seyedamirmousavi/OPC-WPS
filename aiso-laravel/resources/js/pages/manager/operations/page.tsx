@@ -50,7 +50,7 @@ export default function OperationsPage() {
     <>
       <PageHeader title={t("ops.title")} sub={t("ops.sub", { n: num(rows.length, 0), total: num(data.length, 0) })} />
       <Card>
-        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <input className={inputClass} placeholder={t("common.search")} aria-label={t("common.search")} value={q} onChange={(e) => setQ(e.target.value)} />
           <select className={inputClass} aria-label={t("op.status")} value={status} onChange={(e) => setStatus(e.target.value as OpStatus | "")}>
             <option value="">{t("ops.allStatuses")}</option>

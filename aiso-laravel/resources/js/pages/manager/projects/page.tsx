@@ -110,7 +110,7 @@ export default function ProjectsPage() {
           }
         >
           <p className="mb-3 text-sm text-ink-2">{t("prio.help")}</p>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <RankingEditor
               items={ranking.map((id) => {
                 const p = byId.get(id)!;
@@ -207,7 +207,7 @@ export default function ProjectsPage() {
         )}
       </Card>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title={t("impact.resourcesNow")}>
           <ResourceTable metrics={opt} />
         </Card>

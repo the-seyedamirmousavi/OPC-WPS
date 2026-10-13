@@ -74,7 +74,7 @@ function Body({ d, mode, refresh }: { d: OperationDetail; mode: "manage" | "exec
   const [reason, setReason] = useState("");
   const [comment, setComment] = useState("");
   const users = useFetch<User[]>(mode === "manage" && (o.status === "READY" || o.status === "ASSIGNED") ? "/users" : null);
-  const executors = (users.data ?? []).filter((u) => u.active && u.role.startsWith("USER_"));
+  const executors = (users.data ?? []).filter((u) => u.active && u.receivesTasks);
 
   const act = async (path: string, body?: unknown, ok?: string) => {
     setBusy(true);

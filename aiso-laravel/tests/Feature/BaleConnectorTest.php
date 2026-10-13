@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Enums\Role;
+use App\Models\AppRole;
 use App\Messaging\BaleBot;
 use App\Models\AppUser;
 use App\Models\Notification;
@@ -39,7 +39,7 @@ class BaleConnectorTest extends TestCase
         return AppUser::query()->create([
             'id' => $id,
             'full_name' => 'User ' . $id,
-            'user_role' => Role::USER_1,
+            'user_role' => AppRole::USER_1,
             'active' => $active,
             'password_hash' => Hash::make('Passw0rd!test'),
             'must_change_password' => false,
